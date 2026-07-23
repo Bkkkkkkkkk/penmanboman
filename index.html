@@ -559,14 +559,41 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
     }
 
      window.onload = function() {
-      // 💥【替換這段】改用 fetch 呼叫 API
+      // ⚡ 第 1 步：讀取本地快照 (0 秒極速開機)
+      var snapshot = localStorage.getItem('guild_snapshot');
+      if (snapshot) {
+        try {
+          var snapshotData = JSON.parse(snapshot);
+          renderAll(snapshotData); // 瞬間填滿畫面，不顯示 Loader！
+        } catch (e) {
+          console.error("魔法陣快照殘缺：", e);
+        }
+      }
+
+      // 🔄 第 2 步：背景默默向 GAS 伺服器請求最新資料
       fetch(GAS_API_URL + "?token=" + API_TOKEN + "&action=getDashboardData&forceRefresh=false")
         .then(response => response.json())
         .then(result => {
            if(result.status === "error") throw new Error(result.message);
+           
+           // 💾 第 3 步：資料抵達！將最新資料存入本地快照，供下次秒開使用
+           localStorage.setItem('guild_snapshot', JSON.stringify(result.data));
+           
+           // ✨ 第 4 步：用最新的資料無縫刷新畫面
            renderAll(result.data);
         })
-        .catch(err => { alert("讀取失敗：" + err.message); });
+        .catch(err => { 
+           // 若背景同步失敗(例如網路訊號差)，只在背景報錯，不跳 Alert 打擾使用者體驗
+           console.log("背景同步中斷：" + err.message); 
+           
+           // 如果連快照都沒有(第一次開啟)又斷網，才顯示錯誤
+           if (!snapshot) {
+             var loader = document.getElementById('loader');
+             loader.style.display = 'block';
+             loader.innerHTML = "🚫 網路斷線，無法召喚公會資料";
+             loader.style.color = "#ff4444";
+           }
+        });
     };
     // 💥【新增這段】處理強制同步的視覺效果與 API 呼叫
     function forceUpdate() {
@@ -584,6 +611,7 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
         .then(response => response.json())
         .then(result => {
            if(result.status === "error") throw new Error(result.message);
+	   localStorage.setItem('guild_snapshot', JSON.stringify(result.data));
            renderAll(result.data);
         })
         .catch(err => { 
@@ -631,6 +659,7 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
         .then(response => response.json())
         .then(result => {
            if(result.status === "error") throw new Error(result.message);
+           localStorage.setItem('guild_snapshot', JSON.stringify(result.data));
            renderAll(result.data);
         })
         .catch(err => { 
@@ -1402,6 +1431,7 @@ if (data.bossList && data.bossList.length > 0) {
         .then(response => response.json())
         .then(result => {
            if(result.status === "error") throw new Error(result.message);
+	   localStorage.setItem('guild_snapshot', JSON.stringify(result.data));
            renderAll(result.data);
         })
         .catch(err => { 

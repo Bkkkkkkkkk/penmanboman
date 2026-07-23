@@ -1442,6 +1442,50 @@ if (data.bossList && data.bossList.length > 0) {
            switchTab('dashboard');
         });
     }
+	// ==========================================
+    // 📲 iOS 原生下拉刷新 (Pull-to-Refresh)
+    // ==========================================
+    let touchStartY = 0;
+    let pullDistance = 0;
+    
+    // 建立下拉時顯示的提示元件
+    const ptrContainer = document.createElement('div');
+    ptrContainer.innerHTML = '🔄 重新解析魔法陣...';
+    ptrContainer.style.cssText = 'position:fixed; top:-50px; left:0; width:100%; text-align:center; color:#2196f3; font-weight:bold; font-size:0.9rem; transition: top 0.2s; z-index:9999; text-shadow: 0 0 10px rgba(33,150,243,0.5);';
+    document.body.appendChild(ptrContainer);
+
+    document.addEventListener('touchstart', function(e) {
+      // 只有在畫面最頂端時才啟動下拉監聽
+      if (window.scrollY === 0) {
+        touchStartY = e.touches[0].clientY;
+      }
+    }, {passive: true});
+
+    document.addEventListener('touchmove', function(e) {
+      if (window.scrollY === 0 && touchStartY > 0) {
+        pullDistance = e.touches[0].clientY - touchStartY;
+        // 限制最大下拉距離與視覺回饋
+        if (pullDistance > 0 && pullDistance < 120) {
+          ptrContainer.style.top = (pullDistance - 50) + 'px';
+        }
+      }
+    }, {passive: true});
+
+    document.addEventListener('touchend', function(e) {
+      if (pullDistance > 70) {
+        // 下拉距離足夠，觸發強制更新
+        ptrContainer.style.top = '20px';
+        forceUpdate(); 
+        // 2秒後把提示收回去 (配合載入動畫時間)
+        setTimeout(function() { ptrContainer.style.top = '-50px'; }, 2000);
+      } else {
+        // 拉不夠長，直接縮回去
+        ptrContainer.style.top = '-50px';
+      }
+      // 重置參數
+      touchStartY = 0;
+      pullDistance = 0;
+    });
   </script>
 </body>
 </html>

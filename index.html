@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8"> 
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body { font-family: 'Noto Sans TC', sans-serif; background-color: #1e1e1e; color: #e0e0e0; margin: 0; padding: 20px; }
+    .card { background-color: #2d2d2d; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    .card-gold { border-left: 5px solid #FFD700; }
+    .card-mission { border-left: 5px solid #9c27b0; background: linear-gradient(145deg, #2d2d2d, #221a25); }
+    
+    /* 🛡️ 勇者識別證 (Hero Card) 樣式 */
+    .hero-card {
+      background: linear-gradient(135deg, #333, #222);
+      border: 1px solid #444; border-radius: 12px; padding: 20px;
+      margin-bottom: 20px; position: relative; overflow: hidden;
+      box-shadow: inset 0 -15px 20px -5px rgba(255, 250, 240, 0.1), 0 4px 8px rgba(0,0,0,0.5);
+    }
+    .hero-header { text-align: center; margin-bottom: 15px; }
+    .hero-label { font-size: 0.85rem; color: #aaa; margin-bottom: 2px; }
+    .hero-title { font-size: 1.5rem; font-weight: bold; color: #fff; text-shadow: 0 0 10px rgba(255,215,0,0.6); margin: 5px 0; }
+    .hero-desc { font-size: 0.9rem; color: #888; font-style: italic; }
+    .hero-stats { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px; border-top: 1px solid #444; padding-top: 10px; }
+    .level-badge { background: #FFD700; color: #000; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.9rem; margin-right: 5px; }
+    .xp-bar { background: #444; height: 8px; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+    .xp-fill { background: linear-gradient(90deg, #4caf50, #81c784); height: 100%; width: 0%; transition: width 1s ease-out; }
+
+    /* 一般樣式 */
+    h2 { margin-top: 0; font-size: 1.2rem; color: #aaa; display: flex; align-items: baseline; flex-wrap: wrap; }
+    .sub-title { font-size: 0.8rem; color: #666; font-weight: normal; margin-left: 8px; }
+    .big-number { font-size: 2.5rem; font-weight: bold; color: #4caf50; }
+    .chart-container { position: relative; height: 300px; width: 100%; }
+    .wish-item { display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding: 10px 0; }
+    .progress-bar { background-color: #444; height: 6px; border-radius: 3px; margin-top: 5px; overflow: hidden; }
+    .progress-fill { background-color: #2196f3; height: 100%; }
+    #loader { text-align: center; margin-top: 50px; }
+    .nav-tabs { display: flex; justify-content: center; margin-bottom: 20px; gap: 10px; }
+    .nav-btn { background-color: #333; color: #aaa; border: none; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+    .nav-btn.active { background-color: #2196f3; color: white; box-shadow: 0 0 10px rgba(33,150,243,0.5); }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #444; }
+    th { color: #888; font-size: 0.9rem; }
+    
+    @keyframes glow {
+      from { text-shadow: 0 0 5px #FFD700; opacity: 0.8; }
+      to { text-shadow: 0 0 20px #FFD700; opacity: 1; }
+    }
+
+    .system-window-glow {
+      background: linear-gradient(135deg, rgba(10, 25, 40, 0.95), rgba(25, 50, 75, 0.95)) !important;
+      border: 1px solid rgba(0, 195, 255, 0.7) !important;
+      box-shadow: 0 0 20px rgba(0, 195, 255, 0.4), inset 0 0 25px rgba(0, 195, 255, 0.2) !important;
+      color: #e0f7ff;
+    }
+    /* ✨ 女神大人的魔法專屬卡片 */
+    .card-magic {
+      background: linear-gradient(145deg, rgba(46, 125, 50, 0.15), rgba(27, 94, 32, 0.3));
+      border: 1px solid rgba(129, 199, 132, 0.4);
+      box-shadow: 0 0 15px rgba(76, 175, 80, 0.2), inset 0 0 20px rgba(76, 175, 80, 0.1);
+      border-left: 5px solid #81c784;
+      position: relative;
+      overflow: hidden;
+    }
+    .card-magic::before { /* 營造微光流動感 */
+      content: "";
+      position: absolute;
+      top: -50%; left: -50%; width: 200%; height: 200%;
+      background: radial-gradient(circle, rgba(129, 199, 132, 0.1) 0%, transparent 60%);
+      animation: pulse-magic 4s infinite alternate;
+      pointer-events: none;
+    }
+    @keyframes pulse-magic {
+      0% { transform: scale(0.8); opacity: 0.5; }
+      100% { transform: scale(1.1); opacity: 1; }
+    }
+    .card-magic h2 {
+      color: #a5d6a7 !important;
+      text-shadow: 0 0 8px rgba(129, 199, 132, 0.6);
+    }
+
+    .system-window-glow h2, .system-window-glow h3 {
+        color: #00dddf !important;
+        text-shadow: 0 0 5px rgba(0, 221, 223, 0.5);
+    }
+
+    .monster-card {
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      position: relative;
+      overflow: hidden;
+      text-align: center;
+      transition: all 0.5s ease;
+    }
+    /* 📜 懸賞討伐令專屬卡片樣式 */
+    .bounty-card {
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 15px;
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(145deg, rgba(40,40,40,0.9), rgba(25,25,25,0.9));
+        transition: all 0.3s ease;
+    }
+    .bounty-safe { border-left: 5px solid #4caf50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.05); }
+    .bounty-warn { border-left: 5px solid #ff9800; box-shadow: 0 0 15px rgba(255, 152, 0, 0.2); }
+    .bounty-danger { 
+        border-left: 5px solid #ff4444; 
+        box-shadow: 0 0 20px rgba(255, 68, 68, 0.4); 
+        animation: mutation-pulse 1.5s infinite; /* 沿用你原本的發光動畫 */
+    }
+
+    .bounty-header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom: 8px; }
+    .bounty-title { font-size: 1.1rem; font-weight: bold; color: #fff; }
+    .bounty-pr { font-family: monospace; font-size: 1.1rem; font-weight: bold; }
+    .bounty-safe .bounty-pr { color: #4caf50; }
+    .bounty-warn .bounty-pr { color: #ff9800; }
+    .bounty-danger .bounty-pr { color: #ff4444; }
+
+    
+    .rank-S, .rank-SS, .rank-SSS { border: 2px solid #FFD700; box-shadow: 0 0 15px rgba(255, 215, 0, 0.3); }
+    .rank-A { border-left: 5px solid #ff4444; }
+    .rank-B { border-left: 5px solid #ff9800; }
+    .rank-C { border-left: 5px solid #2196f3; }
+    .rank-D, .rank-E { border-left: 5px solid #4caf50; }
+
+    .portal-wrapper { position: relative; width: 80px; height: 80px; margin: 0 auto 15px; display: flex; justify-content: center; align-items: center; }
+    .portal-ring { position: absolute; width: 100%; height: 100%; border-radius: 50%; border-style: dashed; border-width: 5px; opacity: 0.7; }
+    .portal-rank-label { position: relative; z-index: 10; font-size: 2.5rem; font-weight: 900; font-family: 'Times New Roman', serif; text-shadow: 0 0 10px currentColor; }
+
+    .status-danger .portal-ring { border-color: #ff4444; animation: spin 0.5s linear infinite; box-shadow: 0 0 30px rgba(255, 68, 68, 0.5); }
+    .status-danger .portal-rank-label { color: #ff4444; animation: pulse-text 1s infinite alternate; }
+    .status-warning .portal-ring { border-color: #b39ddb; animation: spin 3s linear infinite; box-shadow: 0 0 20px rgba(179, 157, 219, 0.3); }
+    .status-warning .portal-rank-label { color: #b39ddb; }
+    .status-safe .portal-ring { border-color: #2196f3; animation: spin 8s linear infinite; box-shadow: 0 0 10px rgba(33, 150, 243, 0.2); }
+    .status-safe .portal-rank-label { color: #2196f3; }
+
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    @keyframes pulse-text { from { text-shadow: 0 0 10px #ff4444; transform: scale(1); } to { text-shadow: 0 0 25px #ff4444; transform: scale(1.1); } }
+    
+    .mutation-alert { animation: mutation-pulse 1.5s infinite; border: 2px solid #ff4444 !important; }
+    @keyframes mutation-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7); } 70% { box-shadow: 0 0 20px 10px rgba(255, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); } }
+    
+    .monster-name { font-size: 1.5rem; font-weight: bold; color: #fff; margin: 5px 0; text-shadow: 0 0 5px rgba(0,0,0,0.8); }
+    .monster-info { font-size: 0.9rem; color: #aaa; display: flex; justify-content: center; gap: 10px; margin-top: 5px; }
+    .monster-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; background: #333; color: #fff; }
+
+
+    /* 🗡️ Boss 討伐戰 2.0 專屬卡片與血條樣式 */
+    .boss-card {
+      position: relative;
+      margin-bottom: 15px;
+      padding: 10px;
+      border-radius: 8px;
+      transition: all 0.3s ease;
+      background: rgba(0, 0, 0, 0.15);
+    }
+    .boss-card.slain {
+      opacity: 0.6;
+      filter: grayscale(80%); /* 討伐成功後失去色彩 */
+    }
+    .slain-stamp {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-15deg);
+      font-size: 2.2rem;
+      font-weight: 900;
+      color: #ff4444;
+      border: 4px solid #ff4444;
+      padding: 5px 15px;
+      border-radius: 10px;
+      text-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+      box-shadow: inset 0 0 10px rgba(255, 68, 68, 0.3), 0 0 15px rgba(255, 68, 68, 0.2);
+      pointer-events: none; /* 避免擋住點擊 */
+      z-index: 10;
+      letter-spacing: 2px;
+      font-family: 'Times New Roman', serif;
+    }
+/* 獨立物理血條 (紅) */
+    .boss-hp-bar { background: rgba(255, 68, 68, 0.2); height: 8px; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+    .boss-hp-fill { background: #ff4444; height: 100%; transition: width 1s ease-out; }
+    
+    /* 獨立魔法蓄力條 (藍) */
+    .boss-mp-bar { background: rgba(33, 150, 243, 0.2); height: 6px; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+    .boss-mp-fill { background: #2196f3; height: 100%; transition: width 1s ease-out; }
+  </style>
+</head>
+<body>
+
+  <div id="loader">同步公會資料中...</div>
+
+  <div class="nav-tabs" id="nav-tabs" style="display:none;">
+    <button class="nav-btn active" onclick="switchTab('dashboard')">🏰 戰情總覽</button>
+    <button class="nav-btn" onclick="switchTab('analytics')">🔮 戰局預知</button>
+    <button class="nav-btn" onclick="switchTab('battle')">📜 戰鬥回顧</button>
+    
+  </div>
+
+  <div id="dashboard" style="display:none;">
+    <div id="monster-card-container"></div>
+    <div id="hero-card-container"></div> 
+    <div id="mission-card-container"></div>
+   
+
+    <div class="card">
+      <h2>💥 本次討伐總傷害 <span class="sub-title">(本月總支出)</span></h2>
+      <div class="big-number" id="total-expense">$0</div>
+    </div>
+    <div class="card" style="border-left: 5px solid #2196f3;">
+      <h2>💚 當前小隊血量 <span class="sub-title">(總現金結餘)</span></h2>
+      <div class="big-number" id="current-hp" style="color:#2196f3;">$0</div>
+    </div>
+    <div class="card">
+      <h2>🩸 本次任務後小隊HP量... <span class="sub-title">(本月閒錢水位)</span></h2>
+      <div class="big-number" id="idle-cash" style="color:#2196f3;">$0</div>
+    </div>
+    <div class="card card-gold">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <h2 style="margin-bottom:5px;">💧 當前MP量 <span class="sub-title">(儲備金)</span></h2>
+          <div class="big-number" id="safety-reserve" style="color:#FFD700;">$0</div>
+        </div>
+        <button onclick="triggerTransfer()" style="background-color:#FFD700; color:#1e1e1e; border:none; padding:10px 15px; border-radius:8px; font-weight:bold; cursor:pointer;">⚖️ 治癒術</button>
+      </div>
+    </div>
+    <div class="card card-magic">
+      <h2>✨ 女神大人的魔法 <span class="sub-title" style="color:#aaa;">(股票)</span></h2>
+      <div class="big-number" id="stock-balance" style="color:#c8e6c9; position:relative; z-index:1;">$0</div>
+    </div>
+    <div class="card" style="border-left: 5px solid #ff4444; background: linear-gradient(145deg, #2d2d2d, #1a1a1a);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="color:#ff4444; margin-bottom:5px;">💀 緊急任務 <span class="sub-title" style="color:#888;">(有時效性的一次性支出)</span></h2>
+        <span id="total-boss-mp" style="font-size:0.9rem; color:#aaa;">戰力: $0</span>
+      </div>
+      <div id="boss-container"></div>
+    </div>
+    <div class="card"><h2>🔮 傷害屬性分析</h2><div class="chart-container"><canvas id="expenseChart"></canvas></div></div>
+    <div class="card"><h2>⚒️ 傳說裝備鍛造</h2><div id="wishlist-container"></div></div>
+    <div class="card"><h2>📜 傭兵契約狀態</h2><div id="card-container"></div></div>
+    <div class="card"><div style="display:flex; justify-content:space-between; align-items:center;"><h2>🏺 公會納貢</h2><span id="fixed-total" style="color:#4caf50; font-weight:bold;">$0</span></div><div id="bill-container"></div></div>
+
+
+
+    <div class="card">
+      <h2>⚡ 即時戰況 <span class="sub-title">(最新10筆)</span></h2>
+      <div id="recent-trans-container">
+        </div>
+    </div>
+  </div>
+
+  <div id="analytics" style="display:none;">
+    <div style="display:flex; gap:10px; margin-bottom: 20px;">
+      <div class="card" style="flex:1; padding:15px; margin-bottom:0;">
+        <h2 style="font-size:1rem;">📅 本日HP耗損量<span class="sub-title">(本日支出)</span></h2>
+        <div class="big-number" id="analytics-today-expense" style="font-size:1.5rem;">$0</div>
+      </div>
+      <div class="card" style="flex:1; padding:15px; margin-bottom:0;">
+        <h2 style="font-size:1rem;">🗓️ 本週HP耗損量<span class="sub-title">(本週支出)</span></h2>
+        <div class="big-number" id="analytics-week-expense" style="font-size:1.5rem;">$0</div>
+      </div>
+    </div>   
+    <div class="card" style="background: linear-gradient(145deg, #2d2d2d, #252525); text-align:center;">
+      <h2 style="justify-content:center;">🎲 本次任務</h2>
+      <div style="margin: 20px 0;">
+        <span id="clear-rank" style="font-size: 5rem; font-weight: bold; line-height: 1;">-</span>
+        <div style="font-size: 1.2rem; margin-top: 10px;">任務成功機率: <span id="clear-rate" style="color:#2196f3;">0%</span></div>
+      </div>
+      <div id="clear-comment" style="background:rgba(0,0,0,0.3); padding:10px; border-radius:8px; color:#aaa; font-style:italic;">
+        預言中...
+      </div>
+      <div id="easter-egg-container" style="display:none; margin-top: 15px; border-top: 1px solid #444; padding-top: 15px;">
+         <p style="color: #FFD700; font-size: 0.85rem; letter-spacing: 1px; animation: glow 2s infinite alternate;">✨ <span id="easter-egg-text"></span></p>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h2>⚔️ 預言內容...</h2>
+      <div style="margin-top:20px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+          <span id="habit-label">🩸 小隊Hp耗損速率<span class="sub-title">(預期每日花費)</span></span>
+          <span id="habit-val" style="font-weight:bold;">$0 /日</span>
+        </div>
+        <div class="progress-bar"><div id="habit-bar" class="progress-fill" style="width:0%; background-color:#aaa; transition: width 1s;"></div></div>
+        
+        <div style="display:flex; justify-content:space-between; margin-bottom:5px; margin-top:15px;">
+          <span>🧪 小隊生存閥值 <span class="sub-title">(每日花費上限)</span></span>
+          <span id="safe-val" style="font-weight:bold; color:#4caf50;">$0 /日</span>
+        </div>
+        <div class="progress-bar"><div id="safe-bar" class="progress-fill" style="width:0%; background-color:#4caf50; transition: width 1s;"></div></div>
+
+        <p id="speed-advice" style="text-align:center; margin-top:20px; font-weight:bold; color:#e0e0e0; background-color:#333; padding:10px; border-radius:8px;">分析中...</p>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px;">
+      <div class="card" style="flex:1; padding:15px;"><h2 style="font-size:1rem;">🌲 平日消耗<br><span class="sub-title">(平日習慣花費)</span></h2><div class="big-number" id="avg-weekday" style="font-size:1.5rem;">$0</div></div>
+      <div class="card" style="flex:1; padding:15px;"><h2 style="font-size:1rem;">🔥 假日消耗<br><span class="sub-title">(假日習慣花費)</span></h2><div class="big-number" id="avg-weekend" style="font-size:1.5rem;">$0</div></div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 10px;">
+      <div class="card" style="flex:1; padding:15px;">
+        <h2 style="font-size:1rem; color:#ffb74d;">💚 平日閾值<br><span class="sub-title">(平日P80)</span></h2>
+        <div class="big-number" id="safe-weekday" style="font-size:1.5rem; color:#ff9800;">$0</div>
+      </div>
+      
+      <div class="card" style="flex:1; padding:15px;">
+        <h2 style="font-size:1rem; color:#ffb74d;">🔥 假日閾值<br><span class="sub-title">(假日P80)</span></h2>
+        <div class="big-number" id="safe-weekend" style="font-size:1.5rem; color:#ff9800;">$0</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 10px; margin-bottom: 20px;">
+      
+      <div style="display:flex; gap:10px; margin-bottom: 10px;">
+        <div class="card" style="flex:1; padding:15px; border-left: 3px solid #81c784; margin-bottom:0;">
+          <h2 style="font-size:1rem; color:#81c784; margin-bottom:10px;">📊 平日戰術</h2>
+          
+          <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem; color:#aaa;">
+             <span>中位數</span><span style="color:#e0e0e0; font-weight:bold;" id="adv-wd-median">$0</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem; color:#aaa;">
+             <span>標準差</span><span style="color:#e0e0e0;" id="adv-wd-std">$0</span>
+          </div>
+          
+          <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem; color:#aaa; align-items:center;">
+             <span>CV穩定度 <span id="adv-wd-cv-note" style="font-size:0.7em; margin-left:5px;"></span></span>
+             <span style="color:#e0e0e0;" id="adv-wd-cv">0.00</span>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem; color:#aaa; align-items:center;">
+             <span>偏態 (突發) <span id="adv-wd-skew-note" style="font-size:0.7em; margin-left:5px;"></span></span>
+             <span style="color:#e0e0e0;" id="adv-wd-skew">0.00</span>
+          </div>
+
+          <div style="margin-top:8px; border-top:1px solid #444; padding-top:5px; display:flex; justify-content:space-between; font-size:0.9rem;">
+             <span style="color:#ff6384;">🌊 潰堤防線</span><span style="color:#ff6384; font-weight:bold;" id="adv-wd-break">$0</span>
+          </div>
+        </div>
+        
+        <div class="card" style="flex:1; padding:15px; border-left: 3px solid #ffb74d; margin-bottom:0;">
+          <h2 style="font-size:1rem; color:#ffb74d; margin-bottom:10px;">📉 假日戰術</h2>
+          
+          <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem; color:#aaa;">
+             <span>中位數</span><span style="color:#e0e0e0; font-weight:bold;" id="adv-we-median">$0</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem; color:#aaa;">
+             <span>標準差</span><span style="color:#e0e0e0;" id="adv-we-std">$0</span>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem; color:#aaa; align-items:center;">
+             <span>CV穩定度 <span id="adv-we-cv-note" style="font-size:0.7em; margin-left:5px;"></span></span>
+             <span style="color:#e0e0e0;" id="adv-we-cv">0.00</span>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem; color:#aaa; align-items:center;">
+             <span>偏態 (突發) <span id="adv-we-skew-note" style="font-size:0.7em; margin-left:5px;"></span></span>
+             <span style="color:#e0e0e0;" id="adv-we-skew">0.00</span>
+          </div>
+
+          <div style="margin-top:8px; border-top:1px solid #444; padding-top:5px; display:flex; justify-content:space-between; font-size:0.9rem;">
+             <span style="color:#ff6384;">🌊 潰堤防線</span><span style="color:#ff6384; font-weight:bold;" id="adv-we-break">$0</span>
+          </div>
+        </div>
+      </div>
+
+    <div id="rsi-card-container"></div>
+      <div class="card" style="padding:15px; border-left: 3px solid #ab47bc; display:flex; justify-content:space-between; align-items:center;">
+         <div>
+            <h2 style="font-size:1rem; color:#ab47bc; margin:0 0 5px 0;">⚖️ 資源分配結構 (吉尼係數)</h2>
+            <div style="font-size:0.8rem; color:#888;">*數值越高代表花費越集中於特定幾天</div>
+         </div>
+         <div style="text-align:right;">
+            <div style="font-size:1.8rem; font-weight:bold; color:#e0e0e0;" id="adv-gini">0.00</div>
+            <div id="adv-gini-note" style="font-size:0.9rem;">...</div>
+         </div>
+      </div>
+
+    
+    <div id="gas-card-container"></div>
+    </div>
+    <div style="display:flex; gap:10px; margin-bottom: 20px;">
+      <div class="card" style="flex:1; padding:15px; background: linear-gradient(145deg, #2d2d2d, #2a202a); border: 1px solid #4a3b4a;">
+        <h2 style="font-size:1rem; color:#b39ddb;">😈 慾望侵蝕度</h2>
+        <div style="display:flex; align-items:baseline; margin-top:10px;">
+          <div id="corruption-ratio" style="font-size:2rem; font-weight:bold; color:#e1bee7;">0%</div>
+          <div id="corruption-status" style="margin-left:10px; font-size:0.9rem; color:#aaa;">...</div>
+        </div>
+        <div class="progress-bar" style="background:#333; height:6px; margin-top:5px; border-radius:3px; overflow:hidden;">
+          <div id="corruption-bar" style="width:0%; height:100%; background-color:#9c27b0; transition: width 0.5s;"></div>
+        </div>
+        <div style="font-size:0.8rem; color:#666; margin-top:5px; text-align:right;">
+          (Want: $<span id="corruption-amt">0</span>)
+        </div>
+      </div>
+      <div class="card" style="flex:1; padding:15px; background: linear-gradient(145deg, #2d2d2d, #202a2a); border: 1px solid #3b4a4a;">
+        <h2 style="font-size:1rem; color:#80cbc4;">🥤 藥水成癮</h2>
+        <div style="display:flex; align-items:baseline; margin-top:10px;">
+          <div id="potion-count" style="font-size:2rem; font-weight:bold; color:#b2dfdb;">0</div>
+          <div style="font-size:1rem; color:#80cbc4; margin-left:5px;">杯</div>
+        </div>
+        <div id="potion-title" style="color:#aaa; font-size:0.9rem; margin-top:5px;">...</div>
+        <div style="font-size:0.8rem; color:#666; margin-top:5px; text-align:right;">
+          (Total: $<span id="potion-total">0</span>)
+        </div>
+      </div>
+    </div>
+    
+    <div class="card">
+        <h2>📜 過往戰役</h2>
+        <div class="chart-container" style="height:250px;"><canvas id="trendChart"></canvas></div>
+    </div>
+
+    <div class="card">
+        <h2>🩸 爆擊傷害 Top 5</h2>
+        <table id="top5-table"></table>
+    </div>
+
+  </div> <div id="battle" style="display:none;">
+      
+      <div id="battle-hero" class="card system-window-glow" style="text-align:center; padding:30px 20px;">
+          <h3 style="color:#aaa; margin:0 0 10px 0;">讀取戰報中...</h3>
+      </div>
+
+      <div class="card">
+        <h2>⚔️ 近期戰役履歷 <span class="sub-title">(近7日)</span></h2>
+        <div id="battle-history-icons" style="display:flex; gap:8px; justify-content:center; margin-top:15px; font-size:1.5rem;">
+        </div>
+        <div id="battle-history-list" style="margin-top:15px;">
+        </div>
+      </div>
+
+      <div class="card">
+      <h2>📜 本月魔物懸賞令 <span class="sub-title">(活躍度偵測)</span></h2>
+      <div id="bounty-container"></div>
+    </div>
+    </div> <!-- 🟢 先把 battle 區塊關閉 -->
+
+    <!-- 💥【新增】系統底層控制區塊 (放置於最下方) -->
+    <div id="system-footer" style="text-align: center; margin-top: 40px; padding-bottom: 30px; display: none;">
+      <button onclick="forceUpdate()" style="background-color: transparent; color: #555; border: 1px solid #444; padding: 6px 15px; border-radius: 20px; cursor: pointer; font-size: 0.8rem; transition: 0.3s;" onmouseover="this.style.color='#ff9800'; this.style.borderColor='#ff9800';" onmouseout="this.style.color='#555'; this.style.borderColor='#444';">
+        🔄 強制同步魔法陣 (清除快取)
+      </button>
+    </div>
+
+<script>
+    var globalData = null; 
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycby5DHMrUqrUB7soj3og3YqVyUqLCJ5dGtJ__i1PJVDSqy83W2ATJ1JZnI4VoiV-WMjH5g/exec";
+    const API_TOKEN = "sjpgje61jAPaaaw3564af";
+    
+    // --- 輔助函式 (移到最外層以免 Scope 錯誤) ---
+    function getCvStatus(cv, isWeekend) {
+    var val = Number(cv);
+    if (!isWeekend) {
+        // --- 平日規則 (越低越好) ---
+        // 0.3 以下：像機器人一樣精準 (完美)
+        if (val <= 0.3) return { text: "\n銅牆鐵壁 (極穩)", color: "#4caf50" }; // Green
+        // 0.5 以下：允許些微的人性波動 (合格)
+        if (val <= 0.5) return { text: "\n偶有擾流 (正常)", color: "#ff9800" }; // Orange
+        // 0.5 以上：忽大忽小，預算難以控制 (危險)
+        return { text: "\n防線滲漏 (不穩)", color: "#ff4444" }; // Red
+    } else {
+        // --- 假日規則 (適度波動是好的) ---
+        // 0.3 以下：假日都花一樣的錢，可能缺乏驚喜
+        if (val <= 0.3) return { text: "\n缺乏起伏 (平淡)", color: "#9e9e9e" }; // Grey
+        // > 0.3：代表有時吃大餐、有時休息，生活有彈性
+        return { text: "\n釋放正常 (活躍)", color: "#4caf50" }; // Green
+    }
+    }
+
+    function getSkewStatus(skew, isWeekend) {
+    var val = Number(skew);
+
+    if (!isWeekend) {
+        // --- 平日規則 (越高越好) ---
+        // > 1.2：平日花費極度壓縮在低價區，標準獵人模型
+        if (val >= 1.2) return { text: "\n狙擊手 (完美)", color: "#4caf50" }; // Green
+        // 0.8 ~ 1.2：大部分日子是省的
+        if (val >= 0.8) return { text: "\n蓄力中 (良好)", color: "#ff9800" }; // Orange
+        // < 0.8：平日花費分佈太平均，沒有壓低基數
+        return { text: "\n平砍模式 (低效)", color: "#ff4444" }; // Red
+    } else {
+        // --- 假日規則 (中性) ---
+        // 假日偏態不用太強求，只要不是負偏(大部分日子都很貴)即可
+        if (val >= 0) return { text: "\n分佈正常", color: "#4caf50" }; // Green
+        return { text: "\n慣性揮霍 (高耗)", color: "#ff9800" }; // Orange
+    }
+    }
+    /**
+ * 雙軌 RSI 狀態判定
+ * @param {number} rsi7 短期動能
+ * @param {number} rsi14 長期動能
+ * @param {number} gap 差值 (RSI7 - RSI14)
+ */
+function getDualRsiStatus(rsi7, rsi14, gap) {
+  var rsi7Val = Number(rsi7);
+  var gapVal = Number(gap);
+
+  // 1. 急速升溫 (危險)：短期比長期高太多，代表最近幾天花太兇
+  if (gapVal >= 10) {
+    return { 
+      status: "🔥 急速升溫", 
+      advice: "煞車！最近花費增速過快",
+      color: "#ff4444", // 紅色
+      gapIcon: "⬆"
+    };
+  }
+
+  // 2. 強力煞車 (安全)：短期遠低於長期，代表正在收斂
+  if (gapVal <= -10) {
+    return { 
+      status: "❄️ 強力冷卻", 
+      advice: "收心成功，效率極佳", 
+      color: "#4caf50", // 綠色
+      gapIcon: "⬇"
+    };
+  }
+
+  // 3. 慣性巡航 (普通)：兩者差不多
+  // 但如果兩者都太高 (>60)，代表生活成本已經墊高了 (生活通膨)
+  if (rsi7Val > 60) {
+    return { 
+      status: "⚠️ 高檔鈍化", 
+      advice: "警報：習慣性高消費中", 
+      color: "#ff9800", // 橘色
+      gapIcon: "➡"
+    };
+  }
+
+  // 4. 正常巡航
+  return { 
+    status: "⚖️ 慣性巡航", 
+    advice: "動能平穩，維持現狀", 
+    color: "#4caf50", // 綠色
+    gapIcon: "➡"
+  };
+}
+
+    function getGiniStatus(gini) {
+    var val = Number(gini);
+
+    // --- 資源集中度規則 (越高越好) ---
+    
+    // > 0.6：S級獵人。平日極省，假日極爽，資源完全花在刀口上。
+    // 使用金色 (#FFD700) 作為最高榮耀
+    if (val >= 0.6) return { text: "資源集中 (S級)", color: "#FFD700" }; 
+
+    // 0.4 ~ 0.6：有在執行策略，但力道普通
+    if (val >= 0.4) return { text: "戰術執行 (A級)", color: "#4caf50" }; // Green
+
+    // < 0.4：平日假日花得差不多，沒有重點，變成「混亂邪惡」
+    return { text: "彈藥耗散 (混亂)", color: "#ff4444" }; // Red
+    }
+
+     window.onload = function() {
+      // 💥【替換這段】改用 fetch 呼叫 API
+      fetch(GAS_API_URL + "?token=" + API_TOKEN + "&action=getDashboardData&forceRefresh=false")
+        .then(response => response.json())
+        .then(result => {
+           if(result.status === "error") throw new Error(result.message);
+           renderAll(result.data);
+        })
+        .catch(err => { alert("讀取失敗：" + err.message); });
+    };
+    // 💥【新增這段】處理強制同步的視覺效果與 API 呼叫
+    function forceUpdate() {
+      var loader = document.getElementById('loader');
+      loader.style.display = 'block';
+      loader.innerHTML = "🔄 強制同步公會資料中...<br><span style='font-size:0.8rem; color:#ff9800;'>(正在重新解析魔法陣)</span>";
+      
+      document.getElementById('dashboard').style.display = 'none';
+      document.getElementById('analytics').style.display = 'none';
+      document.getElementById('battle').style.display = 'none';
+      document.getElementById('nav-tabs').style.display = 'none';
+      
+// 💥【替換這段】改用 fetch 呼叫 API 並強制更新
+      fetch(GAS_API_URL + "?token=" + API_TOKEN + "&action=getDashboardData&forceRefresh=true")
+        .then(response => response.json())
+        .then(result => {
+           if(result.status === "error") throw new Error(result.message);
+           renderAll(result.data);
+        })
+        .catch(err => { 
+            alert("同步失敗：" + err.message); 
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('nav-tabs').style.display = 'flex';
+            document.getElementById('system-footer').style.display = 'block';
+            switchTab('dashboard');
+        });
+    }
+
+    function switchTab(tabName) {
+      document.getElementById('dashboard').style.display = (tabName === 'dashboard') ? 'block' : 'none';
+      document.getElementById('analytics').style.display = (tabName === 'analytics') ? 'block' : 'none';
+      document.getElementById('battle').style.display = (tabName === 'battle') ? 'block' : 'none';
+      var btns = document.getElementsByClassName('nav-btn');
+      btns[0].classList.toggle('active', tabName === 'dashboard');
+      btns[1].classList.toggle('active', tabName === 'analytics');
+      btns[2].classList.toggle('active', tabName === 'battle');
+    }
+
+    function triggerTransfer() {
+      var input = prompt("【治療師操作面板】\n✨ 輸入正數 (如 5000)：施放「治癒術」\nWm 輸入負數 (如 -5000)：施放「魔力汲取」", "0");
+      if (input === null) return; 
+      var amount = Number(input);
+      if (isNaN(amount) || amount === 0) { alert("咒語唸錯了！(請輸入有效數字)"); return; }
+      
+      var loader = document.getElementById('loader');
+      loader.style.display = 'block';
+      document.getElementById('dashboard').style.display = 'none';
+      document.getElementById('analytics').style.display = 'none';
+      document.getElementById('nav-tabs').style.display = 'none'; 
+      document.getElementById('system-footer').style.display = 'none';
+      
+      
+      if (amount > 0) {
+        loader.innerHTML = "✨ 詠唱「大治癒術」中...<br><span style='font-size:0.8rem; color:#4caf50;'>(正從金庫調度資源...)</span>";
+        loader.style.color = "#4caf50"; loader.style.textShadow = "0 0 20px #4caf50";
+      } else {
+        loader.innerHTML = "Wm 詠唱「魔力蓄能」中...<br><span style='font-size:0.8rem; color:#FFD700;'>(正在封印資金...)</span>";
+        loader.style.color = "#FFD700"; loader.style.textShadow = "0 0 20px #FFD700";
+      }
+// 💥【替換這段】改用 fetch 呼叫 API 執行治癒術
+      fetch(GAS_API_URL + "?token=" + API_TOKEN + "&action=updateReserve&amount=" + amount)
+        .then(response => response.json())
+        .then(result => {
+           if(result.status === "error") throw new Error(result.message);
+           renderAll(result.data);
+        })
+        .catch(err => { 
+           alert("🚫 施法中斷 (系統錯誤)：\n" + err.message); 
+           document.getElementById('loader').style.display = 'none'; 
+           document.getElementById('nav-tabs').style.display = 'flex'; 
+           document.getElementById('system-footer').style.display = 'block';
+           switchTab('dashboard'); 
+        });
+    }
+
+    // --- 🔥 核心修復：錯誤隔離渲染 ---
+    function renderAll(data) {
+      if (!data) return;
+      globalData = data;
+      document.getElementById('loader').style.display = 'none';
+      document.getElementById('nav-tabs').style.display = 'flex';
+      document.getElementById('system-footer').style.display = 'block';
+      
+      if(document.getElementById('dashboard').style.display === 'none' && 
+         document.getElementById('analytics').style.display === 'none' && 
+         document.getElementById('battle').style.display === 'none') {
+         switchTab('dashboard');
+      }
+
+      // 分開執行，避免一個壞掉全死
+      try { renderDashboard(data); } catch(e) { console.error("Dashboard Error:", e); }
+      try { renderAnalytics(data); } catch(e) { console.error("Analytics Error:", e); }
+      try { renderBattle(data); } catch(e) { 
+          console.error("Battle Error:", e); 
+          document.getElementById('battle-hero').innerHTML = "<div style='color:red;padding:20px;'>戰報讀取錯誤：" + e.message + "</div>";
+      }
+    }
+
+    function renderDashboard(data) {
+      var rpg = data.analytics.rpg;
+      var heroHtml = '';
+      if (rpg) {
+         var currentXP = rpg.currentXP || 0;
+         var nextLevelXP = rpg.nextLevelXP || 100;
+         var xpPercent = Math.min(100, Math.floor((currentXP / nextLevelXP) * 100));
+         heroHtml = `<div class="hero-card"><div class="hero-header"><div class="hero-label">📅 本日命運稱號</div><div class="hero-title">【 ${rpg.dailyTitle} 】</div><div class="hero-desc">"${rpg.dailyDesc}"</div></div><div class="hero-stats"><div><span class="level-badge">Lv.${rpg.level}</span><span style="color:#ddd; font-weight:bold;">${rpg.rankTitle}</span></div><div style="font-size:0.8rem; color:#aaa;">EXP: ${currentXP.toLocaleString()} / ${nextLevelXP.toLocaleString()}</div></div><div class="xp-bar"><div class="xp-fill" style="width:${xpPercent}%"></div></div></div>`;
+      }
+      document.getElementById('hero-card-container').innerHTML = heroHtml;
+      
+      var m = data.analytics.monster;
+      var monsterHtml = '';
+      if (m) {
+        var nowHour = new Date().getHours();
+        var isRevealTime = nowHour >= 19; 
+        
+        if (m.rank === 'Safe') {
+           monsterHtml = `<div class="card" style="text-align:center; border-left: 5px solid #4caf50;"><h2 style="justify-content:center; color:#4caf50;">🕊️ 區域安全</h2><p style="color:#888; margin:5px;">今日魔力濃度極低，享受和平的日常吧。</p></div>`;
+        } 
+        else if (!isRevealTime) {
+           var statusClass = '';
+           var statusText = '';
+           var displayRank = m.rank;
+           if (['S', 'SS', 'SSS'].includes(m.rank)) {
+               statusClass = 'status-danger'; statusText = '⚠️ 測定不能 (極度危險)';
+           } else if (['A', 'B'].includes(m.rank)) {
+               statusClass = 'status-warning'; statusText = '⚡ 高能源反應';
+           } else {
+               statusClass = 'status-safe'; statusText = '🔹 區域安定';
+           }
+           monsterHtml = `<div class="card system-window-glow" style="text-align:center;"><div class="portal-wrapper ${statusClass}"><div class="portal-ring"></div><div class="portal-rank-label">${displayRank}</div></div><h3 style="margin:0; font-size:1.1rem; color:#e0e0e0;">${statusText}</h3><p style="color:#888; margin:5px 0 0 0; font-size:0.9rem;">魔力濃度: <span style="font-family:monospace; font-weight:bold;">${m.pr}%</span></p><div style="margin-top:15px; font-size:0.75rem; color:#555; border-top:1px solid #444; padding-top:5px;">[NOTIFICATION] 地下城將於 19:00 開啟</div></div>`;
+        } 
+        else {
+           var mutationClass = (m.isMutation) ? 'mutation-alert' : '';
+           var rankClass = 'rank-' + m.rank; 
+           var elementIcon = {'火':'🔥','風':'🌪️','水':'💧','雷':'⚡','闇':'🌑'}[m.element] || '';
+           var mutationText = (m.isMutation) ? `<div style="color:#ff4444; font-weight:bold; font-size:0.9rem; margin-top:5px;">⚠️ 警告：魔物正在吸收魔力變異中...</div>` : '';
+           monsterHtml = `<div class="monster-card system-window-glow ${rankClass} ${mutationClass}"><div style="font-size:0.9rem; color:#aaa; margin-bottom:5px;">${elementIcon} [${m.element}屬性] - 威脅度 ${m.rank}</div><div class="monster-name">${m.name}</div><div class="monster-info"><span class="monster-badge" style="background:#555;">魔力濃度 ${m.pr}%</span><span class="monster-badge" style="background:#444;">弱點: 停止消費</span></div>${mutationText}</div>`;
+        }
+      }
+      document.getElementById('monster-card-container').innerHTML = monsterHtml;
+
+      var missionHtml = '';
+      if (data.missionData && !data.missionData.hasEntryYesterday) {
+         missionHtml = `<div class="card card-mission"><h2 style="color:#e1bee7; margin-bottom:5px;">📜 支線任務：時空裂縫修復</h2><p style="color:#e0e0e0; margin:5px 0;">⚠️ 偵測到時空裂縫 (${data.missionData.yesterdayStr})</p><p style="color:#aaa; font-size:0.9rem; margin-top:5px;">請補記帳或執行「零之補正 ($0)」以修復時間線。</p></div>`;
+      }
+      document.getElementById('mission-card-container').innerHTML = missionHtml;
+
+      // ==========================================
+      // 🚜 新增：機械陸行鳥 (油資系統) - 純顯示模式
+      // ==========================================
+      var gasHtml = '';
+      
+      // 確保後端有傳來 gasInfo 資料
+      if (data.gasInfo) {
+         var g = data.gasInfo;
+         // 避免分母為 0
+         var gBudget = g.budget > 0 ? g.budget : 1; 
+         var gPct = Math.min(100, Math.round((g.used / gBudget) * 100));
+         
+         // 顏色邏輯：綠(安全) -> 黃(耗油) -> 紅(危險)
+         var gColor = "#4caf50"; 
+         var gStatus = "能源補充中";
+         if (gPct > 50) { gColor = "#ff9800"; gStatus = "已補充50%"; }
+         if (gPct > 80) { gColor = "#ff4444"; gStatus = "已補充80%"; }
+         if (gPct > 98) { gColor = "#b71c1c"; gStatus = "已補充99%"; }
+         if (gPct >= 100) { gColor = "#b71c1c"; gStatus = "能源超載"; }
+
+         gasHtml = `
+           <div class="card" style="border-left: 5px solid ${gColor};">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                 <div style="display:flex; align-items:center; gap:8px;">
+                   <span style="font-size:1.5rem;">🚜</span>
+                   <div>
+                     <h3 style="margin:0; font-size:1rem; color:#eee;">載具燃料</h3>
+                     <div style="font-size:0.75rem; color:#aaa;">預算鎖定協定</div>
+                   </div>
+                 </div>
+                 <div style="text-align:right;">
+                   <div style="font-size:1.2rem; font-weight:bold; color:${gColor};">$${g.used.toLocaleString()}</div>
+                   <div style="font-size:0.7rem; color:#666;">/ $${g.budget.toLocaleString()}</div>
+                 </div>
+              </div>
+
+              <div style="background:#333; height:10px; border-radius:5px; overflow:hidden; position:relative; margin-top:5px;">
+                 <div style="width:${gPct}%; background:${gColor}; height:100%; transition: width 1s ease-in-out;"></div>
+                 <div style="position:absolute; left:80%; top:0; bottom:0; width:1px; border-left:1px dashed rgba(255,255,255,0.5);"></div>
+              </div>
+              
+              <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:0.75rem; color:#888;">
+                 <span>${gStatus}</span>
+                 <span>預估: $${g.budget.toLocaleString()}</span>
+              </div>
+           </div>
+         `;
+      }
+      
+      // 把卡片塞進剛剛挖好的洞裡
+      var gasContainer = document.getElementById('gas-card-container');
+      if (gasContainer) {
+          gasContainer.innerHTML = gasHtml;
+      }
+
+      var totalHtml = '$' + (data.totalExpense||0).toLocaleString();
+      if (data.totalEstimatedUnpaid > 0) totalHtml += '<br><span style="font-size:0.4em; color:#888; margin-left:10px;">(還有 $' + data.totalEstimatedUnpaid.toLocaleString() + '點傷害即將到來... )</span>';
+      document.getElementById('total-expense').innerHTML = totalHtml;
+      document.getElementById('current-hp').innerText = '$' + (data.currentHP || 0).toLocaleString();
+      
+      // 更新女神大人的魔法 (股票餘額)
+      if (document.getElementById('stock-balance')) {
+         document.getElementById('stock-balance').innerText = '$' + (data.stockBalance || 0).toLocaleString();
+      }
+
+
+      var idleCash = data.totalIdleCash||0;
+      var idleEl = document.getElementById('idle-cash');
+      idleEl.innerText = '$' + idleCash.toLocaleString();
+      idleEl.style.color = (idleCash < 0) ? '#ff6384' : '#2196f3';
+      if(idleCash < 0) idleEl.innerText += " \n(資源枯竭)";
+      document.getElementById('safety-reserve').innerText = '$' + (data.safetyReserve||0).toLocaleString();
+
+    // --- 🟢 修改開始：圓餅圖防呆檢查 ---
+      var chartCanvas = document.getElementById('expenseChart');
+      var chartContainer = chartCanvas.parentElement; // 抓取父容器 (.chart-container)
+      var categoryKeys = Object.keys(data.categoryData || {});
+      var categoryValues = Object.values(data.categoryData || {});
+
+      // 1. 先清除舊圖表實例 (不管有無資料都要做，避免殘留)
+      if (window.myPieChart) {
+          window.myPieChart.destroy();
+          window.myPieChart = null;
+      }
+
+      // 2. 判斷是否有有效資料 (分類數量 > 0 且 總金額 > 0)
+      var hasData = categoryKeys.length > 0 && categoryValues.some(v => v > 0);
+
+      if (!hasData) {
+          // 情況 A：完全沒資料 -> 隱藏畫布，顯示文字
+          chartCanvas.style.display = 'none'; 
+          
+          // 檢查是否已經有提示文字，沒有才新增
+          if (!document.getElementById('no-data-msg')) {
+              var msg = document.createElement('div');
+              msg.id = 'no-data-msg';
+              msg.style.textAlign = 'center';
+              msg.style.color = '#777';
+              msg.style.padding = '100px 0'; // 調整間距讓文字置中
+              msg.innerHTML = '👻 本月尚無傷害屬性';
+              chartContainer.appendChild(msg);
+          }
+      } else {
+          // 情況 B：有資料 -> 移除提示文字，顯示畫布，並畫圖
+          var existingMsg = document.getElementById('no-data-msg');
+          if (existingMsg) existingMsg.remove();
+          
+          chartCanvas.style.display = 'block'; 
+          var ctx = chartCanvas.getContext('2d');
+
+          window.myPieChart = new Chart(ctx, { 
+              type: 'doughnut', 
+              data: { 
+                  labels: categoryKeys, 
+                  datasets: [{ 
+                      data: categoryValues, 
+                      backgroundColor: ['#ff6384', '#36a2eb', '#ffce56', '#4bc0c0', '#9966ff', '#ff9f40','#f44336', '#00bcd4', '#4caf50', '#e91e63', '#cddc39', '#9c27b0','#3f51b5', '#ffeb3b', '#795548', '#607d8b', '#8bc34a', '#009688'], 
+                      borderWidth: 0 
+                  }] 
+              }, 
+              options: { 
+                  responsive: true, 
+                  maintainAspectRatio: false, 
+                  plugins: { 
+                      legend: { 
+                          position: 'right', 
+                          labels: { color: '#e0e0e0' } 
+                      } 
+                  } 
+              } 
+          });
+      }
+      // --- 🟢 修改結束 ---
+      var wishHtml = '';
+      (data.wishlist||[]).forEach(item => {
+        var p = (item.goal>0)?Math.min(100, (item.saved/item.goal)*100):0;
+        wishHtml += `<div class="wish-item">
+            <div style="width:100%">
+              
+              <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                <div>
+                   <div style="font-weight:bold; font-size:1rem; color:#e0e0e0; margin-bottom:2px;">
+                     ${item.name}
+                   </div>
+                  <div style="font-size:0.85rem; color:#FFD700; font-weight:bold; display:flex; align-items:center;">
+                     <span style="margin-right:4px;">★</span> ${item.score}
+                   </div>
+                </div>
+
+                <div style="font-size:0.85rem; color:#aaa; text-align:right;">
+                  $${item.saved.toLocaleString()} / $${item.goal.toLocaleString()}
+                </div>
+              </div>
+
+              <div class="progress-bar" style="margin-top:8px;">
+                <div class="progress-fill" style="width:${p}%"></div>
+              </div>
+
+            </div>
+          </div>`;
+      });
+      document.getElementById('wishlist-container').innerHTML = wishHtml || '<p style="color:#777">無計畫</p>';
+
+      var bossHtml = '';
+      document.getElementById('total-boss-mp').innerText = '已蓄力: $' + (data.totalBossChargedMP || 0).toLocaleString();
+if (data.bossList && data.bossList.length > 0) {
+        data.bossList.forEach(function(boss) {
+           var level = boss.level || "E";
+           var badgeColor = '#4caf50'; 
+           var badgeText = '#fff'; 
+          
+           if (level === 'S' || level === 'SS' || level === 'SSS') {
+              badgeColor = '#FFD700'; badgeText = '#000'; 
+           } else if (level === 'A') {
+              badgeColor = '#ff4444'; 
+           } else if (level === 'B') {
+              badgeColor = '#ff9800'; 
+           } else if (level === 'C') {
+              badgeColor = '#2196f3'; 
+           }
+
+           
+// --- ⚔️ Boss 2.0 獨立雙血條渲染 ---
+           var safeHp = boss.hp > 0 ? boss.hp : 1; 
+           var remainingHp = Math.max(0, boss.hp - boss.paidAmount); 
+           
+           var paidPct = Math.min(100, (boss.paidAmount / safeHp) * 100);
+           var mpPct = Math.min(100, (boss.chargedMP / safeHp) * 100); 
+           
+           var slainClass = boss.isKilled ? "slain" : "";
+           var stampHtml = boss.isKilled ? `<div class="slain-stamp">DEFEATED</div>` : "";
+
+           // 🌟 新增：如果尚未討伐，就產生一個帥氣的斬殺按鈕
+           var executeBtnHtml = (!boss.isKilled) ? 
+              `<button onclick="confirmExecute('${boss.name}')" style="background: rgba(255,68,68,0.15); border: 1px solid #ff4444; color: #ff4444; border-radius: 6px; padding: 3px 10px; font-size: 0.75rem; font-weight: bold; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#ff4444';this.style.color='#fff';" onmouseout="this.style.background='rgba(255,68,68,0.15)';this.style.color='#ff4444';">🗡️ 斬殺</button>` : '';
+
+           var mpHtml = remainingHp > 0 ? `
+              <div style="margin-top: 10px;">
+                 <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#2196f3;">
+                    <span>⚡ 魔法蓄力 (準備金)</span>
+                    <span>$${boss.chargedMP.toLocaleString()} / 總計 $${boss.hp.toLocaleString()}</span>
+                 </div>
+                 <div class="boss-mp-bar"><div class="boss-mp-fill" style="width:${mpPct}%;"></div></div>
+              </div>
+           ` : '';
+
+           bossHtml += `
+           <div class="boss-card ${slainClass}">
+              ${stampHtml}
+              <div style="display:flex; justify-content:space-between; font-size:0.9rem; align-items: center;">
+                 <div style="display:flex; align-items:center;">
+                    <span style="background:${badgeColor};color:${badgeText}; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold; margin-right:6px; box-shadow: 0 0 5px ${badgeColor}80;">${level}</span>
+                    <span style="font-weight:bold;color:#e0e0e0;">👾 ${boss.name} <span style="font-size:0.8em;color:#888; font-weight:normal;">(${boss.note})</span></span>
+                 </div>
+                 ${executeBtnHtml}
+              </div>
+              
+              <div style="margin-top: 12px;">
+                 <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#ff4444; font-weight:bold;">
+                    <span>🩸 物理傷害 (已付)</span>
+                    <span>$${boss.paidAmount.toLocaleString()} / 總計 $${boss.hp.toLocaleString()}</span>
+                 </div>
+                 <div class="boss-hp-bar"><div class="boss-hp-fill" style="width:${paidPct}%;"></div></div>
+              </div>
+              
+              ${mpHtml}
+              
+              <div style="display:flex;justify-content:space-between; font-size:0.75rem; margin-top:10px; color:#aaa; border-top: 1px dashed #444; padding-top: 5px;">
+                 <span>📅 截止日：${boss.deadline}</span>
+                 <span>(本月預估需補充: $${boss.monthlyLoad.toLocaleString()})</span>
+              </div>
+           </div>`;
+        });
+      } else { 
+        bossHtml = '<p style="color:#777;text-align:center;">區域安全</p>'; 
+      }
+      document.getElementById('boss-container').innerHTML = bossHtml;
+
+      var cardHtml = '';
+      (data.creditCards||[]).forEach(c => {
+        var color = c.paid ? '#e0e0e0' : '#ff6384';
+        var text = c.paid ? `<div>已繳 $${c.amount.toLocaleString()}</div><div style="font-size:0.75em;color:#aaa;font-weight:normal;margin-top:2px;">(${c.paidDate})</div>` : `截止日: ${c.dueDay}號`;
+        cardHtml += `<div class="wish-item" style="color:${color}"><div style="display:flex;align-items:center;width:100%"><span style="margin-right:10px;font-size:1.2rem;">${c.paid?'✅':'💳'}</span><div style="flex-grow:1;display:flex;justify-content:space-between;align-items:center;"><span>${c.name}</span><span style="font-weight:bold;font-size:0.9rem;text-align:right;">${text}</span></div></div></div>`;
+      });
+      document.getElementById('card-container').innerHTML = cardHtml || '<p style="color:#777">無紀錄</p>';
+
+      document.getElementById('fixed-total').innerText = '$' + (data.totalFixedBill||0).toLocaleString();
+      var billHtml = '';
+      (data.bills||[]).forEach(b => {
+        var color = b.paid ? '#e0e0e0' : '#777';
+        var text = b.paid ? `<div>$${b.amount.toLocaleString()}</div><div style="font-size:0.75em;color:#aaa;font-weight:normal;margin-top:2px;">(${b.lastPaidDate})</div>` : (b.estimatedAmount>0 ? `<div>未納貢</div><div style="font-size:0.75em;color:#666;font-weight:normal;">(預估 $${b.estimatedAmount.toLocaleString()})</div>` : '未納貢');
+        billHtml += `<div class="wish-item" style="color:${color}"><div style="display:flex;align-items:center;width:100%"><span style="margin-right:10px;font-size:1.2rem;">${b.paid?'✅':'⬜'}</span><div style="flex-grow:1;display:flex;justify-content:space-between;align-items:center;"><span>${b.name}</span><span style="font-weight:bold;text-align:right;">${text}</span></div></div></div>`;
+      });
+      document.getElementById('bill-container').innerHTML = billHtml || '<p style="color:#777">無項目</p>';
+
+      // ==========================================
+    // 🆕 新增：渲染最新 10 筆
+    // ==========================================
+    var recentHtml = '<table style="width:100%; border-collapse:collapse; margin-top:5px;">';
+
+    
+    if (data.recentTransactions && data.recentTransactions.length > 0) {
+      data.recentTransactions.forEach(function(t) {
+        // 設定顏色：支出=紅, 收入=綠, 轉帳=黃/灰
+        var color = '#ff6384'; // 預設紅色 (傷害)
+        var sign = '-';
+        
+        if (t.type === '收入') { 
+            color = '#4caf50'; 
+            sign = '+';
+        } else if (t.type.indexOf('轉帳') > -1) { 
+            color = '#FFD700'; 
+            sign = '';
+        }
+
+        recentHtml += `
+          <tr style="border-bottom: 1px solid #333;">
+            <td style="padding: 8px 0; color: #aaa; font-size: 0.85rem; width: 45px;">${t.date}</td>
+            <td style="padding: 8px 0;">
+              <div style="color: #e0e0e0; font-size: 0.95rem;">${t.item}</div>
+              <div style="color: #666; font-size: 0.75rem;">${t.cat}</div>
+            </td>
+            <td style="padding: 8px 0; text-align: right; color: ${color}; font-weight: bold;">
+              ${sign}$${t.amount.toLocaleString()}
+            </td>
+          </tr>
+        `;
+      });
+    } else {
+      recentHtml += '<tr><td colspan="3" style="text-align:center; color:#777; padding:20px;">尚無戰鬥紀錄</td></tr>';
+    }
+    
+    recentHtml += '</table>';
+    
+    // 寫入 HTML
+    var container = document.getElementById('recent-trans-container');
+    if (container) container.innerHTML = recentHtml;
+    }
+
+    function renderAnalytics(data) {
+      if (!data.analytics) return;
+
+      // --- 🔥 修復點：進階統計防呆區塊 ---
+      try {
+        if (data.analytics.advancedStats) {
+           var adv = data.analytics.advancedStats;
+           
+           // 確保 DOM 存在再寫入
+           if(document.getElementById('adv-wd-median')) {
+             document.getElementById('adv-wd-median').innerText = '$' + adv.wd_median.toLocaleString();
+             document.getElementById('adv-wd-std').innerText = '$' + adv.wd_std.toLocaleString(); 
+             document.getElementById('adv-wd-cv').innerText = adv.wd_cv;
+             document.getElementById('adv-wd-break').innerText = '$' + adv.wd_break.toLocaleString();
+             document.getElementById('adv-wd-skew').innerText = adv.wd_skew;
+             
+             document.getElementById('adv-we-median').innerText = '$' + adv.we_median.toLocaleString();
+             document.getElementById('adv-we-std').innerText = '$' + adv.we_std.toLocaleString();
+             document.getElementById('adv-we-cv').innerText = adv.we_cv;
+             document.getElementById('adv-we-break').innerText = '$' + adv.we_break.toLocaleString();
+             document.getElementById('adv-we-skew').innerText = adv.we_skew;
+             
+             document.getElementById('adv-gini').innerText = adv.gini*100 +'%';
+
+             var wdCvStat = getCvStatus(adv.wd_cv, false);
+             document.getElementById('adv-wd-cv-note').innerText = wdCvStat.text;
+             document.getElementById('adv-wd-cv-note').style.color = wdCvStat.color;
+
+             var wdSkewStat = getSkewStatus(adv.wd_skew);
+             document.getElementById('adv-wd-skew-note').innerText = wdSkewStat.text;
+             document.getElementById('adv-wd-skew-note').style.color = wdSkewStat.color;
+
+             var weCvStat = getCvStatus(adv.we_cv, true);
+             document.getElementById('adv-we-cv-note').innerText = weCvStat.text;
+             document.getElementById('adv-we-cv-note').style.color = weCvStat.color;
+
+             var weSkewStat = getSkewStatus(adv.we_skew);
+             document.getElementById('adv-we-skew-note').innerText = weSkewStat.text;
+             document.getElementById('adv-we-skew-note').style.color = weSkewStat.color;
+
+             var giniStat = getGiniStatus(adv.gini);
+             document.getElementById('adv-gini-note').innerText = giniStat.text;
+             document.getElementById('adv-gini-note').style.color = giniStat.color;
+       // =========== 🔥 請在這裡插入 RSI 渲染邏輯 (開始) ===========
+           // 1. 確保數據存在
+           var r7 = adv.rsi7 || 0;
+           var r14 = adv.rsi14 || 0;
+           var rGap = adv.rsiGap || 0;
+
+           // 2. 計算狀態
+           var rsiStat = getDualRsiStatus(r7, r14, rGap);
+           var gapDisplay = (rGap > 0 ? "+" : "") + rGap;
+           // 設定 gap 顏色 (箭頭向上是紅，向下是綠)
+           var gapColor = rsiStat.gapIcon === '⬆' ? '#ff4444' : '#4caf50'; 
+
+           // 3. 建立 HTML
+           var rsiHtml = `
+            <div style="background-color: #2b2b2b; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 5px solid ${rsiStat.color}; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="color: #bbb; font-size: 14px; font-weight: bold; display: flex; align-items: center;">
+                  📡 消費動能雷達
+                </span>
+                <span style="color: ${rsiStat.color}; font-size: 12px; font-weight: bold; background: rgba(0,0,0,0.2); padding: 3px 8px; border-radius: 4px; border: 1px solid ${rsiStat.color};">
+                  ${rsiStat.status}
+                </span>
+              </div>
+
+              <div style="display: flex; align-items: baseline; justify-content: space-between;">
+                <div style="display: flex; align-items: baseline;">
+                  <span style="font-size: 36px; font-weight: 800; color: ${rsiStat.color}; letter-spacing: -1px;">
+                    ${Math.round(r7)}
+                  </span>
+                  <span style="font-size: 13px; color: #888; margin-left: 6px;">RSI-7</span>
+                </div>
+                <div style="text-align: right;">
+                  <div style="font-size: 13px; color: #888;">
+                    RSI-14: <span style="color: #ccc;">${Math.round(r14)}</span>
+                  </div>
+                  <div style="font-size: 14px; font-weight: bold; color: ${gapColor}; margin-top: 2px;">
+                    ${rsiStat.gapIcon} ${gapDisplay}
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #444;">
+                <span style="color: #ddd; font-size: 13px;">💡 ${rsiStat.advice}</span>
+              </div>
+            </div>
+           `;
+
+           // 4. 寫入 HTML
+           var rsiContainer = document.getElementById('rsi-card-container');
+           if(rsiContainer) rsiContainer.innerHTML = rsiHtml;
+           // =========== 🔥 RSI 渲染邏輯 (結束) ===========
+           }
+        }
+      } catch (e) {
+        console.warn("Advanced Stats Render Skipped:", e);
+      }
+      // ------------------------------------
+
+      if (data.analytics.desireStats && data.analytics.potionStats) {
+        var desire = data.analytics.desireStats;
+        var potion = data.analytics.potionStats;
+        document.getElementById('corruption-ratio').innerText = desire.ratio + "%";
+        document.getElementById('corruption-status').innerText = desire.status;
+        document.getElementById('corruption-amt').innerText = desire.totalWant.toLocaleString();
+        document.getElementById('corruption-bar').style.width = Math.min(100, desire.ratio) + "%";
+        document.getElementById('potion-count').innerText = potion.count;
+        document.getElementById('potion-title').innerText = potion.title;
+        document.getElementById('potion-total').innerText = potion.total.toLocaleString();
+      }
+      var f = data.analytics.forecast;
+      var cr = data.analytics.clearRateData || {}; 
+      var rankEl = document.getElementById('clear-rank');
+      rankEl.innerText = cr.rank || "-";
+      rankEl.className = ''; 
+      if (cr.rank === 'SSS' || cr.rank === 'S') rankEl.style.color = '#FFD700';
+      else if (cr.rank === 'A' || cr.rank === 'B') rankEl.style.color = '#2196f3';
+      else if (cr.rank === 'C') rankEl.style.color = '#ff9800';
+      else rankEl.style.color = '#ff4444';
+      var displayRate = cr.rate;
+      if (displayRate <= 0) document.getElementById('clear-rate').innerText = '< 0.01%';
+      else document.getElementById('clear-rate').innerText = displayRate + '%';
+      document.getElementById('clear-comment').innerText = cr.comment || "分析中...";
+      var eggEl = document.getElementById('easter-egg-container');
+      if (cr.easterEgg) {
+         document.getElementById('easter-egg-text').innerText = cr.easterEgg; eggEl.style.display = 'block';
+      } else { eggEl.style.display = 'none'; }
+      document.getElementById('analytics-today-expense').innerText = '$' + (data.analytics.todayExpense || 0).toLocaleString();
+      document.getElementById('analytics-week-expense').innerText = '$' + (data.analytics.weekExpense || 0).toLocaleString();
+      var mySpeed = f.currentHabitSpeed;
+      var limitSpeed = f.safeDailySpend;
+      document.getElementById('habit-val').innerText = '$' + mySpeed + ' /日';
+      document.getElementById('safe-val').innerText = '$' + limitSpeed + ' /日';
+      var maxBase = Math.max(mySpeed, limitSpeed) * 1.2; if (maxBase === 0) maxBase = 1;
+      var myPercent = (mySpeed / maxBase) * 100;
+      var limitPercent = (limitSpeed / maxBase) * 100;
+      document.getElementById('habit-bar').style.width = myPercent + '%';
+      document.getElementById('safe-bar').style.width = limitPercent + '%';
+      var adviceEl = document.getElementById('speed-advice');
+      var habitBar = document.getElementById('habit-bar');
+      if (f.remainingDays <= 0) {
+         adviceEl.innerText = "📅 本次副本已結束，準備結算獎勵！"; adviceEl.style.color = "#aaa";
+      } else if (mySpeed > limitSpeed) {
+         habitBar.style.backgroundColor = '#ff6384';
+         document.getElementById('habit-label').style.color = '#ff6384';
+         adviceEl.innerText = `⚠️ 警告：你即將陷入瀕死... \n(下次任務懲罰傷害 $${Math.abs(f.projectedLanding).toLocaleString()})`; adviceEl.style.borderLeft = "5px solid #ff6384";
+      } else {
+         habitBar.style.backgroundColor = '#2196f3'; document.getElementById('habit-label').style.color = '#e0e0e0';
+         adviceEl.innerText = `🟢 節奏良好：預計順利通關 \n(下次任務獎勵回復 $${f.projectedLanding.toLocaleString()})`; adviceEl.style.borderLeft = "5px solid #4caf50";
+      }
+      document.getElementById('avg-weekday').innerText = '$' + data.analytics.avgWeekday.toLocaleString();
+      document.getElementById('avg-weekend').innerText = '$' + data.analytics.avgWeekend.toLocaleString();
+      document.getElementById('safe-weekday').innerText = '$' + (data.analytics.safeWeekday || 0).toLocaleString();
+      document.getElementById('safe-weekend').innerText = '$' + (data.analytics.safeWeekend || 0).toLocaleString();
+      
+      var tableHtml = '<tr><th>日期</th><th>項目</th><th style="text-align:right">傷害</th></tr>';
+      data.analytics.top5.forEach(item => { tableHtml += `<tr><td>${item.date}</td><td>${item.item} <span style="font-size:0.8em;color:#666">(${item.category})</span></td><td style="text-align:right;color:#ff6384">$${item.amount.toLocaleString()}</td></tr>`; });
+      document.getElementById('top5-table').innerHTML = tableHtml;
+      
+      var trendData = data.analytics.trend;
+      var labels = Object.keys(trendData).sort().slice(-6);
+      var incomeData = labels.map(k => trendData[k].income);
+      var expenseData = labels.map(k => trendData[k].expense);
+      var ctx = document.getElementById('trendChart').getContext('2d');
+      
+      if (window.trendChartInstance) window.trendChartInstance.destroy();
+      // --- 🔥 修復點：Chart.js 防呆 ---
+      if (typeof Chart !== 'undefined') {
+        window.trendChartInstance = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [ { label: '戰利品', data: incomeData, backgroundColor: '#4caf50' }, { label: '戰損', data: expenseData, backgroundColor: '#ff6384' } ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e0e0e0' } } }, scales: { x: { ticks: { color: '#aaa' }, grid: { color: '#333' } }, y: { ticks: { color: '#aaa' }, grid: { color: '#333' } } } } });
+      } else {
+        console.warn("Chart.js library not loaded");
+      }
+    }
+
+    function renderBattle(data) {
+       // 防呆：如果沒資料就顯示空狀態
+       if (!data.battleLog || data.battleLog.length === 0) {
+          document.getElementById('battle-hero').innerHTML = '<div style="color:#777;">尚無戰鬥紀錄</div>';
+          return;
+       }
+
+       var lastBattle = data.battleLog[0]; 
+       var result = lastBattle.result;
+       // 1. 設定蓋章 (Stamp) - 維持英文
+       var stampText = "UNKNOWN";
+       var stampColor = "#fff";
+       var glowColor = "rgba(255,255,255,0.2)";
+       
+       if (['S', 'A', 'B'].includes(result)) { 
+           stampText = "VICTORY";
+           if (result === 'S') { stampColor = "#FFD700"; glowColor = "rgba(255, 215, 0, 0.4)"; }
+           else if (result === 'A') { stampColor = "#00e676"; glowColor = "rgba(0, 230, 118, 0.3)"; }
+           else { stampColor = "#29b6f6"; glowColor = "rgba(41, 182, 246, 0.3)"; }
+       } else { 
+           stampText = "DEFEATED";
+           stampColor = "#ff5252"; 
+           glowColor = "rgba(255, 82, 82, 0.4)";
+       }
+
+       // 2. 設定評價文字 (Evaluation)
+       var evalText = "戰敗";
+       if (result === 'S') evalText = "討伐BOSS";
+       else if (result === 'A') evalText = "完勝";
+       else if (result === 'B') evalText = "辛勝";
+       else if (result === 'Safe') evalText = "和平";
+
+       // 3. 生成主要卡片 HTML
+       var html = `
+         <div style="position:relative; text-align:center;">
+            <div style="color:#888; font-size:0.9rem; margin-bottom:5px;">📅 昨日戰報 ${lastBattle.date}</div>
+            
+            <div style="
+               font-size: 3rem; font-weight: 900; color: ${stampColor}; letter-spacing: 3px;
+               transform: rotate(-5deg); margin: 15px 0;
+               text-shadow: 0 0 15px ${stampColor}; border: 4px solid ${stampColor};
+               display: inline-block; padding: 5px 20px; border-radius: 10px;
+               box-shadow: 0 0 20px ${glowColor};
+            ">${stampText}</div>
+
+            <div style="font-size: 1.2rem; color: ${stampColor}; margin-bottom: 20px; font-weight:bold;">
+               評價：${evalText}
+            </div>
+
+            <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 15px; text-align: left; margin: 10px auto; width: 90%; border-left: 4px solid ${stampColor};">
+               <div style="margin-bottom: 5px; font-size:1.1rem; color:#fff;">
+                  <span style="color:#aaa; font-size:0.9rem;">魔物名：</span> ${lastBattle.name}
+               </div>
+               <div style="margin-bottom: 5px; color:#e0e0e0;">
+                  <span style="color:#aaa; font-size:0.9rem;">屬性：</span> ${lastBattle.element}
+               </div>
+               <div style="margin-bottom: 5px; color:#ffb74d;">
+                  <span style="color:#aaa; font-size:0.9rem;">危害度：</span> ${lastBattle.rank}
+               </div>
+               <div style="color:#4fc3f7;">
+                  <span style="color:#aaa; font-size:0.9rem;">魔力濃度：</span> ${lastBattle.pr}%
+               </div>
+            </div>
+
+            <div style="margin-top:25px;">
+               <div style="display:flex; justify-content:space-between; width:90%; margin:0 auto; color:#888; font-size:0.8rem;">
+                 <span>敵方</span><span>我方</span>
+               </div>
+               <div style="width:90%; height:12px; background:#333; margin:5px auto; border-radius:6px; position:relative; overflow:hidden;">
+                 <div style="height:100%; width:${Math.min(100, (lastBattle.spend / (lastBattle.b19||1))*100)}%; background:${stampColor}; transition:width 1s;"></div>
+               </div>
+               <div style="display:flex; justify-content:space-between; width:90%; margin:0 auto; font-weight:bold;">
+                 <span style="color:#e0e0e0;">$${lastBattle.spend.toLocaleString()}</span>
+                 <span style="color:#666;">$${(lastBattle.b19||0).toLocaleString()}</span>
+               </div>
+
+               <div style="display:flex; justify-content:space-around; margin-top:20px; border-top:1px solid #444; padding-top:15px;">
+                  <div style="text-align:center;">
+                     <div style="color:#aaa; font-size:0.8rem;">連勝火焰</div>
+                     <div style="color:#ff9800; font-size:1.4rem; font-weight:bold;">🔥 x ${lastBattle.streak}</div>
+                  </div>
+                  <div style="text-align:center;">
+                     <div style="color:#aaa; font-size:0.8rem;">XP 獲取</div>
+                     <div style="color:#00e5ff; font-size:1.4rem; font-weight:bold;">✨ +${lastBattle.xp}</div>
+                  </div>
+               </div>
+            </div>
+         </div>
+       `;
+       document.getElementById('battle-hero').innerHTML = html;
+
+       // 4. 生成圖示列表
+       var iconHtml = '';
+       data.battleLog.slice(0, 7).forEach(function(b) {
+          var icon = '🔴';
+          if (b.result === 'S') icon = '🟣';
+          else if (b.result === 'A') icon = '🟢';
+          else if (b.result === 'B') icon = '🔵'; 
+          iconHtml += `<div style="text-align:center;"><div style="font-size:1.5rem;">${icon}</div><div style="font-size:0.7rem; color:#666;">${b.date}</div></div>`;
+       });
+       document.getElementById('battle-history-icons').innerHTML = iconHtml;
+
+       // 5. 生成詳細列表
+       var listHtml = '<table style="width:100%; border-collapse:collapse; margin-top:10px;">';
+       data.battleLog.forEach(function(b) {
+          var c = '#ff5252'; 
+          if (b.result === 'S') c = '#FFD700'; 
+          else if (b.result === 'A') c = '#00e676'; 
+          else if (b.result === 'B') c = '#29b6f6'; 
+          else if (b.result === 'Safe') c = '#4caf50';
+
+          var rankText = "戰敗";
+          if (b.result === 'S') rankText = "討伐BOSS";
+          else if (b.result === 'A') rankText = "完勝";
+          else if (b.result === 'B') rankText = "辛勝";
+          else if (b.result === 'Safe') rankText = "和平";
+
+          listHtml += `<tr style="border-bottom:1px solid #444;">
+              <td style="padding:10px; color:#aaa; font-size:0.8rem;">${b.date}</td>
+              <td style="padding:10px; font-weight:bold; color:${c};">${rankText}</td>
+              <td style="padding:10px; text-align:right;">$${b.spend.toLocaleString()}</td>
+            </tr>`;
+       });
+       listHtml += '</table>';
+       document.getElementById('battle-history-list').innerHTML = listHtml;
+          // ==========================================
+      // 📜 渲染：懸賞討伐令 (類別狀態卡片)
+      // ==========================================
+      var bountyHtml = '';
+      if (data.categoryBounties && data.categoryBounties.length > 0) {
+          // 戰術排序：優先顯示最危險的 (PR 值由高到低)
+          var sortedBounties = data.categoryBounties.sort((a, b) => b.pr - a.pr);
+
+          sortedBounties.forEach(function(b) {
+              // 防呆：如果這個月還沒花，且 PR 也是 0，就先隱藏不佔版面
+              if(b.current === 0 && b.pr <= 0) return;
+
+              var statusClass = 'bounty-safe';
+              var statusText = '安定';
+              var prText = b.pr.toFixed(1) + '%';
+
+              // 依據危險度變色
+              if (isNaN(b.pr) || b.pr === 0) {
+                  prText = '解析中';
+                  statusClass = 'bounty-safe';
+              } else if (b.pr >= 75) {
+                  statusClass = 'bounty-danger';
+                  statusText = '危險變異';
+              } else if (b.pr >= 50) {
+                  statusClass = 'bounty-warn';
+                  statusText = '活躍中';
+              }
+
+              bountyHtml += `
+              <div class="bounty-card ${statusClass}">
+                  <div class="bounty-header">
+                      <div class="bounty-title">🎯 ${b.name} <span style="font-size:0.75rem; color:#aaa; font-weight:normal;">(${statusText})</span></div>
+                      <div class="bounty-pr">PR: ${prText}</div>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:10px;">
+                      <div>
+                          <div style="font-size:0.8rem; color:#888;">本月累積傷害</div>
+                          <div style="font-size:1.6rem; font-weight:bold; color:#e0e0e0;">$${b.current.toLocaleString()}</div>
+                      </div>
+                      <div style="text-align:right;">
+                          <div style="font-size:0.8rem; color:#888;">防線 (75%)</div>
+                          <div style="font-size:1.1rem; color:#aaa;">$${b.limit.toLocaleString()}</div>
+                      </div>
+                  </div>
+                  <div style="font-size:0.75rem; color:#666; margin-top:8px; border-top:1px dashed #444; padding-top:5px; display:flex; justify-content:space-between;">
+                      <span>常規火力: $${b.avg.toLocaleString()}</span>
+                      <span>歷史極限: $${b.max.toLocaleString()}</span>
+                  </div>
+              </div>`;
+          });
+      }
+      var bountyContainer = document.getElementById('bounty-container');
+      if (bountyContainer) bountyContainer.innerHTML = bountyHtml || '<p style="color:#777; text-align:center;">目前無活躍魔物</p>';
+       // 6. 深夜消費提示
+       if (data.lateNightInfo && data.lateNightInfo.occurred) {
+          var diff = data.lateNightInfo.amount;
+          var storyHtml = `
+            <div id="night-story-card" class="card" style="border-left: 4px solid #7e57c2; background: #261b36; margin-top:15px; animation: fadeIn 1s;">
+               <div style="display:flex; align-items:center; gap:10px; margin-bottom:5px;">
+                  <span style="font-size:1.5rem;">🛡️</span><h4 style="margin:0; color:#b39ddb;">公會夜間守護</h4>
+               </div>
+               <p style="color:#d1c4e9; font-size:0.9rem; margin:5px 0;">
+                  深夜追加消費 <span style="color:#ff6384; font-weight:bold;">$${diff.toLocaleString()}</span> 已被公會暗部處理 (未計入戰損)。
+               </p>
+            </div>
+          `;
+          document.getElementById('battle-hero').insertAdjacentHTML('afterend', storyHtml);
+       }
+    }
+    // ==========================================
+    // ⚔️ 觸發斬殺技能連鎖
+    // ==========================================
+    function confirmExecute(bossName) {
+      var check = confirm(`【發動終結斬殺】\n確定要強制結案「${bossName}」嗎？\n未消耗的預算將會自動釋放！`);
+      if (!check) return;
+      
+      // 顯示載入畫面
+      document.getElementById('loader').style.display = 'block';
+      document.getElementById('dashboard').style.display = 'none';
+      document.getElementById('nav-tabs').style.display = 'none';
+      document.getElementById('loader').innerHTML = "🗡️ 正在執行終結斬殺...<br><span style='font-size:0.8rem; color:#ff4444;'>(正在重整公會金庫資源)</span>";
+      document.getElementById('loader').style.color = "#ff4444";
+      
+// 💥【替換這段】改用 fetch 呼叫 API 執行斬殺
+      fetch(GAS_API_URL + "?token=" + API_TOKEN + "&action=executeBoss&bossName=" + encodeURIComponent(bossName))
+        .then(response => response.json())
+        .then(result => {
+           if(result.status === "error") throw new Error(result.message);
+           renderAll(result.data);
+        })
+        .catch(err => { 
+           alert("斬殺失敗: " + err.message); 
+           document.getElementById('loader').style.display = 'none';
+           document.getElementById('nav-tabs').style.display = 'flex';
+           document.getElementById('system-footer').style.display = 'block';
+           switchTab('dashboard');
+        });
+    }
+  </script>
+</body>
+</html>

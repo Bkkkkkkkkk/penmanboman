@@ -1,64 +1,33 @@
-import os
-import json
-import gspread
-import requests
-import pandas as pd
-import traceback  # 🌟 新增：專門用來印出完整錯誤追蹤的套件
+name: 系統日報排程 (Daily Radar)
 
-# ==========================================
-# ⚙️ 1. 讀取 GitHub Secrets 機密環境變數
-# ==========================================
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
-LINE_TOKEN = os.environ.get("LINE_ACCESS_TOKEN")
-LINE_USER_ID = os.environ.get("LINE_USER_ID")
-GCP_SA_JSON = os.environ.get("GCP_SERVICE_ACCOUNT")
+# 觸發條件：目前先設定為「手動觸發」，方便我們測試
+on:
+  workflow_dispatch:
 
-def init_gspread():
-    """使用 JSON 字串初始化 Google Sheets 連線，並透過絕對 ID 開啟試算表"""
-    credentials_dict = json.loads(GCP_SA_JSON)
-    gc = gspread.service_account_from_dict(credentials_dict)
-    return gc.open_by_key(SPREADSHEET_ID)
-
-def send_line_message(message):
-    """發送 LINE Messaging API 訊息"""
-    url = "https://api.line.me/v2/bot/message/push"
-    headers = {
-        "Authorization": f"Bearer {LINE_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "to": LINE_USER_ID,
-        "messages": [{"type": "text", "text": message}]
-    }
-    response = requests.post(url, headers=headers, json=payload)
-    if response.status_code == 200:
-        print("✅ LINE 推播成功")
-    else:
-        print(f"❌ LINE 推播失敗: {response.text}")
-
-# ==========================================
-# 🚀 2. 主程式：資料庫連線與推播測試
-# ==========================================
-if __name__ == "__main__":
-    try:
-        print("🛸 系統啟動：嘗試連線 Google 試算表...")
-        sh = init_gspread()
-        ws = sh.worksheet("Raw_Data")
+jobs:
+  run-daily-radar:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 下載專案程式碼
+        uses: actions/checkout@v4  # 🌟 這裡升級到 v4
         
-        # 抓取資料並轉為 Pandas DataFrame
-        raw_data = ws.get_all_values()
-        df = pd.DataFrame(raw_data[1:], columns=raw_data[0])
-        
-        # 計算一下總筆數作為驗證
-        total_rows = len(df)
-        print(f"📊 成功讀取 Raw_Data，共 {total_rows} 筆流水帳。")
-        
-        # 組合測試訊息
-        msg = f"[系統通知]\n後勤數據中心連線成功！\n目前已成功讀取 {total_rows} 筆基礎資料，通訊管線運作正常。"
-        send_line_message(msg)
-        
-    except Exception as e:
-        print(f"❌ 系統發生異常: {e}")
-        print("🔍 ======= 詳細錯誤追蹤 (Traceback) =======")
-        traceback.print_exc()  # 🌟 新增：這行會印出最底層的錯誤原因
-        print("=========================================")
+      - name: 設定 Python 環境
+        uses: actions/setup-python@v5  # 🌟 這裡升級到 v5
+        with:
+          python-version: '3.10'
+          
+      - name: 安裝所需套件
+        run: |
+          python -m pip install --upgrade pip
+          pip install gspread pandas requests
+          
+      - name: 執行資料讀取與 LINE 推播測試
+        # 將 GitHub Secrets 注入為環境變數，讓 Python 讀取
+        env:
+          LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: |
+          python daily_radar.py

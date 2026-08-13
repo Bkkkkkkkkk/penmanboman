@@ -217,18 +217,11 @@
 	<div class="card" style="border-left: 5px solid #2196f3;">
       <h2>💚 當前小隊血量 <span class="sub-title">(總現金結餘)</span></h2>
       <div class="big-number" id="current-hp" style="color:#2196f3;">$0</div>
-      <div id="long-term-net" style="font-size: 0.85rem; color: #888; margin-top: 5px;">($0)</div>
     </div>
     <div class="card">
       <h2>🩸 本次任務後小隊HP量... <span class="sub-title">(本月閒錢水位)</span></h2>
       <div class="big-number" id="idle-cash" style="color:#2196f3;">$0</div>
-    </div>
-	<div class="card" style="border-left: 5px solid #ab47bc;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h2 style="margin-bottom:0;">🔮 結算預知 <span class="sub-title">(本月預估淨資產)</span></h2>
-        <span id="month-net-status" style="font-size:0.75rem; padding:3px 8px; border-radius:4px; font-weight:bold; color:#fff;">分析中</span>
-      </div>
-      <div class="big-number" id="current-month-net" style="margin-top:10px;">$0</div>
+	  <div id="long-term-net" style="font-size: 0.85rem; color: #888; margin-top: 5px;">($0)</div>
     </div>
     <div class="card card-gold">
       <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -279,6 +272,14 @@
         <div class="big-number" id="analytics-week-expense" style="font-size:1.5rem;">$0</div>
       </div>
     </div>
+    <div class="card" id="est-net-card" style="border-left: 5px solid #ab47bc; transition: all 0.3s ease; margin-bottom: 20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin-bottom:0;" id="est-net-title">🔮 結算預知 <span class="sub-title" style="color:#888;">(本月預估淨資產)</span></h2>
+        <span id="month-net-status" style="font-size:0.75rem; padding:3px 8px; border-radius:4px; font-weight:bold; color:#fff;">分析中</span>
+      </div>
+      <div class="big-number" id="current-month-net" style="margin-top:10px;">$0</div>
+    </div>
+	  
     <div class="card" style="background: linear-gradient(145deg, #2d2d2d, #252525); text-align:center;">
       <h2 style="justify-content:center;">🎲 本次任務</h2>
       <div style="margin: 20px 0;">
@@ -1203,6 +1204,32 @@ if (data.bossList && data.bossList.length > 0) {
          document.getElementById('easter-egg-text').innerText = cr.easterEgg; eggEl.style.display = 'block';
       } else { eggEl.style.display = 'none'; }
       document.getElementById('analytics-today-net-expense').innerText = '$' + (data.analytics.todayNetExpense || 0).toLocaleString();
+	  // 🔮 寫入本月預估淨資產 (動態變色卡片)
+      var estNet = data.currentMonthEstimatedNet || 0;
+      var estNetCard = document.getElementById('est-net-card');
+      var estNetTitle = document.getElementById('est-net-title');
+      var estNetEl = document.getElementById('current-month-net');
+      var estNetStatusEl = document.getElementById('month-net-status');
+      
+      if (estNetCard) {
+          if (estNet >= 0) {
+              // 盈餘狀態：綠色主題
+              estNetCard.style.borderLeft = '5px solid #4caf50';
+              estNetTitle.style.color = '#4caf50';
+              estNetEl.style.color = '#4caf50';
+              estNetEl.innerText = '$' + estNet.toLocaleString();
+              estNetStatusEl.innerText = '本月預期: 盈餘';
+              estNetStatusEl.style.backgroundColor = '#388e3c';
+          } else {
+              // 赤字狀態：紅色主題
+              estNetCard.style.borderLeft = '5px solid #ff6384';
+              estNetTitle.style.color = '#ff6384';
+              estNetEl.style.color = '#ff6384';
+              estNetEl.innerText = '-$' + Math.abs(estNet).toLocaleString();
+              estNetStatusEl.innerText = '本月預期: 赤字';
+              estNetStatusEl.style.backgroundColor = '#d32f2f';
+          }
+      }
       document.getElementById('analytics-today-expense-total').innerText = '($' + (data.analytics.todayExpense || 0).toLocaleString() + ')';
       document.getElementById('analytics-week-expense').innerText = '$' + (data.analytics.weekExpense || 0).toLocaleString();
       var mySpeed = f.currentHabitSpeed;

@@ -10,10 +10,10 @@ jobs:
     
     steps:
       - name: 下載專案程式碼
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # 🌟 這裡升級到 v4
         
       - name: 設定 Python 環境
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5  # 🌟 這裡升級到 v5
         with:
           python-version: '3.10'
           

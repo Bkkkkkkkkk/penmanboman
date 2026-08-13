@@ -845,7 +845,7 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
       var idleEl = document.getElementById('idle-cash');
       idleEl.innerText = '$' + idleCash.toLocaleString();
       idleEl.style.color = (idleCash < 0) ? '#ff6384' : '#2196f3';
-      if(idleCash < 0) idleEl.innerText += " \n(資源枯竭)";
+      // 已經將 (資源枯竭) 的中文備註刪除
       document.getElementById('safety-reserve').innerText = '$' + (data.safetyReserve||0).toLocaleString();
 
     // --- 🟢 修改開始：圓餅圖防呆檢查 ---

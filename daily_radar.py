@@ -3,6 +3,7 @@ import json
 import gspread
 import requests
 import pandas as pd
+import traceback  # 🌟 新增：專門用來印出完整錯誤追蹤的套件
 
 # ==========================================
 # ⚙️ 1. 讀取 GitHub Secrets 機密環境變數
@@ -58,3 +59,6 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"❌ 系統發生異常: {e}")
+        print("🔍 ======= 詳細錯誤追蹤 (Traceback) =======")
+        traceback.print_exc()  # 🌟 新增：這行會印出最底層的錯誤原因
+        print("=========================================")

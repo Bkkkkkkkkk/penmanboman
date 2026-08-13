@@ -214,13 +214,21 @@
       <h2>💥 本次討伐總傷害 <span class="sub-title">(本月總支出)</span></h2>
       <div class="big-number" id="total-expense">$0</div>
     </div>
-    <div class="card" style="border-left: 5px solid #2196f3;">
+	<div class="card" style="border-left: 5px solid #2196f3;">
       <h2>💚 當前小隊血量 <span class="sub-title">(總現金結餘)</span></h2>
       <div class="big-number" id="current-hp" style="color:#2196f3;">$0</div>
+      <div id="long-term-net" style="font-size: 0.85rem; color: #888; margin-top: 5px;">($0)</div>
     </div>
     <div class="card">
       <h2>🩸 本次任務後小隊HP量... <span class="sub-title">(本月閒錢水位)</span></h2>
       <div class="big-number" id="idle-cash" style="color:#2196f3;">$0</div>
+    </div>
+	<div class="card" style="border-left: 5px solid #ab47bc;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin-bottom:0;">🔮 結算預知 <span class="sub-title">(本月預估淨資產)</span></h2>
+        <span id="month-net-status" style="font-size:0.75rem; padding:3px 8px; border-radius:4px; font-weight:bold; color:#fff;">分析中</span>
+      </div>
+      <div class="big-number" id="current-month-net" style="margin-top:10px;">$0</div>
     </div>
     <div class="card card-gold">
       <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -257,16 +265,20 @@
   </div>
 
   <div id="analytics" style="display:none;">
-    <div style="display:flex; gap:10px; margin-bottom: 20px;">
+  <div style="display:flex; gap:10px; margin-bottom: 20px;">
       <div class="card" style="flex:1; padding:15px; margin-bottom:0;">
         <h2 style="font-size:1rem;">📅 本日HP耗損量<span class="sub-title">(本日支出)</span></h2>
-        <div class="big-number" id="analytics-today-expense" style="font-size:1.5rem;">$0</div>
+        <!-- 大字顯示純日常，小字顯示總消耗 -->
+        <div style="display:flex; align-items:baseline; gap:8px;">
+          <div class="big-number" id="analytics-today-net-expense" style="font-size:1.5rem;">$0</div>
+          <div id="analytics-today-expense-total" style="font-size:0.9rem; color:#888;">($0)</div>
+        </div>
       </div>
       <div class="card" style="flex:1; padding:15px; margin-bottom:0;">
         <h2 style="font-size:1rem;">🗓️ 本週HP耗損量<span class="sub-title">(本週支出)</span></h2>
         <div class="big-number" id="analytics-week-expense" style="font-size:1.5rem;">$0</div>
       </div>
-    </div>   
+    </div>
     <div class="card" style="background: linear-gradient(145deg, #2d2d2d, #252525); text-align:center;">
       <h2 style="justify-content:center;">🎲 本次任務</h2>
       <div style="margin: 20px 0;">
@@ -802,6 +814,25 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
       if (data.totalEstimatedUnpaid > 0) totalHtml += '<br><span style="font-size:0.4em; color:#888; margin-left:10px;">(還有 $' + data.totalEstimatedUnpaid.toLocaleString() + '點傷害即將到來... )</span>';
       document.getElementById('total-expense').innerHTML = totalHtml;
       document.getElementById('current-hp').innerText = '$' + (data.currentHP || 0).toLocaleString();
+		// 寫入長期戰略淨資產 (小灰字)
+      document.getElementById('long-term-net').innerText = '($' + (data.longTermStrategicNet || 0).toLocaleString() + ')';
+
+      // 寫入本月預估淨資產 (新卡片與盈虧標籤)
+      var estNet = data.currentMonthEstimatedNet || 0;
+      var estNetEl = document.getElementById('current-month-net');
+      var estNetStatusEl = document.getElementById('month-net-status');
+      
+      if (estNet >= 0) {
+          estNetEl.style.color = '#4caf50';
+          estNetEl.innerText = '$' + estNet.toLocaleString();
+          estNetStatusEl.innerText = '本月預期: 盈餘';
+          estNetStatusEl.style.backgroundColor = '#388e3c';
+      } else {
+          estNetEl.style.color = '#ff6384';
+          estNetEl.innerText = '-$' + Math.abs(estNet).toLocaleString();
+          estNetStatusEl.innerText = '本月預期: 赤字';
+          estNetStatusEl.style.backgroundColor = '#d32f2f';
+      }
       
       // 更新女神大人的魔法 (股票餘額)
       if (document.getElementById('stock-balance')) {
@@ -1171,7 +1202,8 @@ if (data.bossList && data.bossList.length > 0) {
       if (cr.easterEgg) {
          document.getElementById('easter-egg-text').innerText = cr.easterEgg; eggEl.style.display = 'block';
       } else { eggEl.style.display = 'none'; }
-      document.getElementById('analytics-today-expense').innerText = '$' + (data.analytics.todayExpense || 0).toLocaleString();
+      document.getElementById('analytics-today-net-expense').innerText = '$' + (data.analytics.todayNetExpense || 0).toLocaleString();
+      document.getElementById('analytics-today-expense-total').innerText = '($' + (data.analytics.todayExpense || 0).toLocaleString() + ')';
       document.getElementById('analytics-week-expense').innerText = '$' + (data.analytics.weekExpense || 0).toLocaleString();
       var mySpeed = f.currentHabitSpeed;
       var limitSpeed = f.safeDailySpend;

@@ -7,7 +7,8 @@ from datetime import datetime
 import pytz
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error
-import scipy.stats as stats # 引入統計模組進行極端值分析
+import scipy.stats as stats
+from statsmodels.tsa.seasonal import STL # 🌟 新增 STL 模組
 
 def main():
     print("🚀 啟動戰術雷達：深度分析模組連線中...")
@@ -88,38 +89,58 @@ def main():
     # 4. Phase 4.2: 大額事件分析 (Extreme Value Theory)
     # ==========================================
     print("🌪️ 執行 Phase 4.2: 洪峰極端值分析...")
-    # 定義極端事件警戒線：使用 P95 百分位數 (擷取最極端的 5% 消費)
     event_threshold = np.percentile(df_clean['Amount'], 95)
     large_events = df_clean[df_clean['Amount'] > event_threshold]['Amount']
     
-    # 頻率模型：卜瓦松分配估算 (每月平均發生次數 λ)
     total_days = (df_clean['Date'].max() - df_clean['Date'].min()).days
     total_months = max(total_days / 30.0, 1)
     lambda_poisson = len(large_events) / total_months
-    
-    # 幅度模型：厚尾分布 (Generalized Pareto Distribution)
-    excesses = large_events - event_threshold # 計算「超出警戒線多少」
+    excesses = large_events - event_threshold
     
     if len(excesses) > 0:
-        # 配適 GPD 曲線 (floc=0 強制將超出量起點設為0)
         c, loc, scale = stats.genpareto.fit(excesses, floc=0)
-        
-        # 計算 Expected Shortfall (預期嚴重損失規模)
         if c < 1:
-            # 如果 c < 1，代表厚尾收斂，算得出一個具體的數學期望值
             expected_excess = stats.genpareto.mean(c, loc, scale)
             expected_magnitude = event_threshold + expected_excess
         else:
-            # 如果 c >= 1，代表黑天鵝極端厚尾 (期望值發散)，退回樣本實際平均
             expected_magnitude = event_threshold + excesses.mean()
     else:
         c, expected_magnitude = 0, 0
 
-    print(f"大額門檻: ${event_threshold:.0f} | 月頻率 λ: {lambda_poisson:.2f} 次")
-    print(f"厚尾形狀參數 c: {c:.3f} | 預估衝擊規模: ${expected_magnitude:.0f}")
+    # ==========================================
+    # 5. Phase 4.3: 趨勢分解 (STL Decomposition)
+    # ==========================================
+    print("📈 執行 Phase 4.3: STL 趨勢分解...")
+    try:
+        # 將資料轉為每日頻率的時間序列
+        ts_data = daily_df.set_index('Date')['Amount'].asfreq('D').fillna(0)
+        
+        # 執行 STL (設定週期為 7 天，開啟 robust 抵抗極端值)
+        stl = STL(ts_data, period=7, robust=True)
+        res = stl.fit()
+        
+        # 取出趨勢線
+        trend = res.trend
+        seasonal = res.seasonal
+        
+        # 1. 抓取最新基礎水位 (最近一天的真實趨勢值)
+        current_trend = trend.iloc[-1]
+        
+        # 2. 評估水位漂移 (與 30 天前相比，基礎開銷是變高還是變低？)
+        if len(trend) >= 30:
+            trend_30d_drift = current_trend - trend.iloc[-30]
+        else:
+            trend_30d_drift = current_trend - trend.iloc[0]
+            
+        # 3. 星期震盪幅度 (最花錢的日子跟最省錢的日子，光是「週期」就差多少)
+        seasonal_amplitude = seasonal.max() - seasonal.min()
+        
+    except Exception as e:
+        print(f"❌ STL 分解失敗: {e}")
+        current_trend, trend_30d_drift, seasonal_amplitude = 0, 0, 0
 
     # ==========================================
-    # 5. 統一匯出資料庫 (寫回 py_output)
+    # 6. 統一匯出資料庫 (寫回 py_output)
     # ==========================================
     ws_out = sh.worksheet("py_output")
     taipei_tz = pytz.timezone('Asia/Taipei')
@@ -133,11 +154,14 @@ def main():
         ["event_threshold_p95", round(event_threshold, 0), update_time],
         ["event_lambda_monthly", round(lambda_poisson, 2), update_time],
         ["event_tail_shape_c", round(c, 3), update_time],
-        ["event_expected_magnitude", round(expected_magnitude, 0), update_time]
+        ["event_expected_magnitude", round(expected_magnitude, 0), update_time],
+        ["stl_current_trend", round(current_trend, 0), update_time],
+        ["stl_30d_drift", round(trend_30d_drift, 0), update_time],
+        ["stl_seasonal_amplitude", round(seasonal_amplitude, 0), update_time]
     ]
     
-    # 擴增寫入範圍至 C10，容納新增的大額事件指標
-    ws_out.update('A3:C10', export_data)
+    # 擴增寫入範圍至 C13，把所有高階指標一網打盡
+    ws_out.update('A3:C13', export_data)
     print("✅ 全模組戰果已成功寫入 py_output！")
 
 if __name__ == "__main__":

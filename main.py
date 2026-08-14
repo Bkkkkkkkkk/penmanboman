@@ -76,10 +76,13 @@ def main():
             return d.days_in_month - d.day + payday
     daily_df['DaysToPayday'] = daily_df['Date'].apply(lambda d: get_days_to_payday(d, payday_date))
 
-    # [忍耐爆發指數 - 修正版]
-    # 舊版問題：用全體近30天中位數(P50)當門檻，沒有分星期，導致星期效應與真正的
-    # 壓抑消費訊號混在一起（例如天生花費較低的星期天天被判定「低消費」）。
-    # 新版：依星期分組，各自用「近12次同星期」的 P25 當門檻，敏感度也從 P50 提高到 P25。
+    # [忍耐爆發指數 - 修正版 v2]
+    # v1問題：用全體近30天中位數(P50)當門檻，沒有分星期，星期效應與真正的
+    #   壓抑消費訊號混在一起。
+    # v2問題（本次修正）：分星期後，用「今天所屬星期的P25」去比較「昨天的花費」，
+    #   但昨天可能是別的星期，星期對不齊，導致觸發率被系統性灌高（實測36.5% vs 理論25%）。
+    # 修正：先在「星期對齊」的前提下，判斷當天是否相對於自己星期的歷史P25偏低（is_low_raw），
+    #   再整體平移一天才當作特徵使用（避免用當天結果預測當天）。
     dow_p25 = daily_df.groupby('DayOfWeek')['Amount'].transform(
         lambda s: s.shift(1).rolling(window=12, min_periods=4).quantile(0.25)
     )
@@ -87,13 +90,21 @@ def main():
     fallback_median = daily_df['Amount'].median()
     daily_df['DowP25'] = dow_p25.fillna(fallback_median)
 
-    is_low = (daily_df['Amount'].shift(1) < daily_df['DowP25']).astype(int)
+    # 第一步：星期對齊下，判斷「當天自己」是否相對於「自己星期」偏低
+    is_low_raw = (daily_df['Amount'] < daily_df['DowP25']).astype(int)
+
+    # 第二步：整體往後移一天，變成可用於「預測當天」的特徵，避免用當天結果預測當天
+    is_low = is_low_raw.shift(1).fillna(0).astype(int)
     daily_df['Low_Spend_Streak'] = is_low.groupby((is_low == 0).cumsum()).cumsum()
 
-    # 健檢診斷：確認觸發率是否符合預期（P25門檻下，理論連續2天約6%、連續3天約1.5%）
-    # 只印出來看，不寫入 py_output，不影響任何下游邏輯
+    # 健檢診斷：確認觸發率是否符合預期，只印出來看，不寫入 py_output，不影響下游邏輯
+    # is_low_raw 是乾淨的基準線（星期已對齊），理論上應貼近25%
+    marginal_rate_raw = is_low_raw.mean()
+    marginal_rate_shifted = is_low.mean()
     streak_rate_2plus = (daily_df['Low_Spend_Streak'] >= 2).mean()
     streak_rate_3plus = (daily_df['Low_Spend_Streak'] >= 3).mean()
+    print(f"📊 [健檢] is_low_raw 邊際觸發率(星期對齊基準線): {marginal_rate_raw:.1%}（理論應接近25%）")
+    print(f"📊 [健檢] is_low 邊際觸發率(平移後，餵給模型的版本): {marginal_rate_shifted:.1%}（理論應接近25%）")
     print(f"📊 [健檢] Low_Spend_Streak≥2 佔比: {streak_rate_2plus:.1%}（理論預期約6%左右）")
     print(f"📊 [健檢] Low_Spend_Streak≥3 佔比: {streak_rate_3plus:.1%}（理論預期約1.5%左右）")
 
@@ -214,7 +225,6 @@ def main():
 
     ws_out.update('A3:C14', export_data)
     print("✅ 全模組戰果與特徵工程已成功寫入 py_output！")
-    print(f"📊 [健檢] is_low 邊際觸發率: {is_low.mean():.1%}（理論應接近25%）")
 
 if __name__ == "__main__":
     main()

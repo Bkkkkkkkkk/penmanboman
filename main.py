@@ -184,6 +184,15 @@ def main():
         top_feature_name = coefs.abs().idxmax()
         print(f"🎯 [行為解析] 影響你預測模型最深的特徵是: {top_feature_name}")
 
+        # 完整係數排序（只印出來看，不寫入py_output）：標準化後的係數，正負號代表方向
+        # （正=該特徵越大，預測花費越高；負=該特徵越大，預測花費越低），
+        # 數值大小代表影響力強弱，彼此可以公平比較（因為都已經標準化過）
+        coef_ranked = coefs.reindex(coefs.abs().sort_values(ascending=False).index)
+        print("📋 [完整係數排序]")
+        for feat_name, val in coef_ranked.items():
+            direction = "正相關(越高花費越多)" if val > 0 else "負相關(越高花費越少)"
+            print(f"    {feat_name}: {val:+.1f}（{direction}）")
+
     # ==========================================
     # 4. Phase 4.2: 大額事件分析
     # ==========================================

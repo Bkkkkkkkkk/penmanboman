@@ -86,9 +86,14 @@ def main():
     dow_p25 = daily_df.groupby('DayOfWeek')['Amount'].transform(
         lambda s: s.shift(1).rolling(window=12, min_periods=4).quantile(0.25)
     )
-    # 資料不足4次同星期樣本時，退回全體中位數保底，避免產生 NaN
-    fallback_median = daily_df['Amount'].median()
-    daily_df['DowP25'] = dow_p25.fillna(fallback_median)
+    # 資料不足4次同星期樣本時的 fallback - 修正版
+    # 舊版問題：用「全體中位數」頂著，遠高於大部分星期的真實P25，讓 fallback 期間
+    #   （約前4-5週，佔197天資料約14%）的門檻異常寬鬆，稀釋整體觸發率往上偏移。
+    #   而且用的是全體197天算出的中位數，等於在早期就用到了「未來」資料，邏輯不乾淨。
+    # 修正：fallback 改用「截至前一天為止、全體資料」的展開P25（expanding + shift(1)），
+    #   量綱跟主邏輯一致（都是P25），且不使用未來資料。
+    global_p25_to_date = daily_df['Amount'].expanding(min_periods=4).quantile(0.25).shift(1)
+    daily_df['DowP25'] = dow_p25.fillna(global_p25_to_date)
 
     # 第一步：星期對齊下，判斷「當天自己」是否相對於「自己星期」偏低
     is_low_raw = (daily_df['Amount'] < daily_df['DowP25']).astype(int)
@@ -107,10 +112,6 @@ def main():
     print(f"📊 [健檢] is_low 邊際觸發率(平移後，餵給模型的版本): {marginal_rate_shifted:.1%}（理論應接近25%）")
     print(f"📊 [健檢] Low_Spend_Streak≥2 佔比: {streak_rate_2plus:.1%}（理論預期約6%左右）")
     print(f"📊 [健檢] Low_Spend_Streak≥3 佔比: {streak_rate_3plus:.1%}（理論預期約1.5%左右）")
-    half = len(daily_df) // 2
-    first_half_median = daily_df['Amount'].iloc[:half].median()
-    second_half_median = daily_df['Amount'].iloc[half:].median()
-    print(f"📊 [健檢] 前半段中位數: {first_half_median:.0f} vs 後半段中位數: {second_half_median:.0f}")
 
     # 清除 shift(7) 產生的空值
     model_df = daily_df.dropna().reset_index(drop=True)
@@ -229,7 +230,6 @@ def main():
 
     ws_out.update('A3:C14', export_data)
     print("✅ 全模組戰果與特徵工程已成功寫入 py_output！")
-    
 
 if __name__ == "__main__":
     main()

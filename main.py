@@ -37,7 +37,24 @@ def main():
 
     df_clean = df[(df['Type'] == '支出') & (~df['Category'].isin(['股票', '固定帳單']))].copy()
 
-    daily_df = df_clean.groupby(df_clean['Date'].dt.date)['Amount'].sum().reset_index()
+    # ------------------------------------------
+    # 2.1 日常 vs 大額事件分離（本輪新增，架構級修正）
+    # ------------------------------------------
+    # 問題：舊版只用「類別名稱」排除股票/固定帳單，但實際資料顯示「其他」類別是
+    #   大雜燴——裡面同時混了瑣碎小額（香油錢$100）跟不規律大額（玉山卡費$10,882、
+    #   公會入會費$10,500、老婆旅費$23,784）。這些大額一次性支出的類別標籤逃過了
+    #   排除邏輯，直接被加進每日總支出，污染了Phase 4.1(星期分桶/Low_Spend_Streak/
+    #   Ridge訓練)跟Phase 4.3(STL)的日常消費基準線。
+    # 修正：不再用類別名稱切分，改用P95門檻（跟Phase 4.2同一套標準）在源頭把
+    #   「日常小額(habitual_df)」跟「大額事件(large_events_df)」拆開，
+    #   Phase 4.1/4.3 只用 habitual_df，Phase 4.2 只用 large_events_df，
+    #   兩條管線不再互相污染。
+    event_threshold = np.percentile(df_clean['Amount'], 95)
+    large_events_df = df_clean[df_clean['Amount'] > event_threshold].copy()
+    habitual_df = df_clean[df_clean['Amount'] <= event_threshold].copy()
+    print(f"📊 [資料分離] 日常小額: {len(habitual_df)}筆 / 大額事件: {len(large_events_df)}筆（P95門檻: {event_threshold:.0f}）")
+
+    daily_df = habitual_df.groupby(habitual_df['Date'].dt.date)['Amount'].sum().reset_index()
     daily_df['Date'] = pd.to_datetime(daily_df['Date'])
 
     if not daily_df.empty:
@@ -79,17 +96,18 @@ def main():
     # [忍耐爆發指數 - 修正版 v2]
     # v1問題：用全體近30天中位數(P50)當門檻，沒有分星期，星期效應與真正的
     #   壓抑消費訊號混在一起。
-    # v2問題（本次修正）：分星期後，用「今天所屬星期的P25」去比較「昨天的花費」，
+    # v2問題：分星期後，用「今天所屬星期的P25」去比較「昨天的花費」，
     #   但昨天可能是別的星期，星期對不齊，導致觸發率被系統性灌高（實測36.5% vs 理論25%）。
     # 修正：先在「星期對齊」的前提下，判斷當天是否相對於自己星期的歷史P25偏低（is_low_raw），
     #   再整體平移一天才當作特徵使用（避免用當天結果預測當天）。
     dow_p25 = daily_df.groupby('DayOfWeek')['Amount'].transform(
         lambda s: s.shift(1).rolling(window=12, min_periods=4).quantile(0.25)
     )
+
     # 資料不足4次同星期樣本時的 fallback - 修正版
     # 舊版問題：用「全體中位數」頂著，遠高於大部分星期的真實P25，讓 fallback 期間
-    #   （約前4-5週，佔197天資料約14%）的門檻異常寬鬆，稀釋整體觸發率往上偏移。
-    #   而且用的是全體197天算出的中位數，等於在早期就用到了「未來」資料，邏輯不乾淨。
+    #   （約前4-5週）的門檻異常寬鬆，稀釋整體觸發率往上偏移；而且用的是全體資料
+    #   算出的中位數，等於在早期就用到了「未來」資料，邏輯不乾淨。
     # 修正：fallback 改用「截至前一天為止、全體資料」的展開P25（expanding + shift(1)），
     #   量綱跟主邏輯一致（都是P25），且不使用未來資料。
     global_p25_to_date = daily_df['Amount'].expanding(min_periods=4).quantile(0.25).shift(1)
@@ -103,7 +121,6 @@ def main():
     daily_df['Low_Spend_Streak'] = is_low.groupby((is_low == 0).cumsum()).cumsum()
 
     # 健檢診斷：確認觸發率是否符合預期，只印出來看，不寫入 py_output，不影響下游邏輯
-    # is_low_raw 是乾淨的基準線（星期已對齊），理論上應貼近25%
     marginal_rate_raw = is_low_raw.mean()
     marginal_rate_shifted = is_low.mean()
     streak_rate_2plus = (daily_df['Low_Spend_Streak'] >= 2).mean()
@@ -133,16 +150,16 @@ def main():
         train_data, test_data = model_df.iloc[start_idx:train_end], model_df.iloc[train_end:test_end]
         y_true = test_data['Amount'].values
 
-        # EWMA（不受此次改動影響）
+        # EWMA（不受本輪改動影響）
         ewma_pred = np.full(len(y_true), train_data['Amount'].ewm(span=7, adjust=False).mean().iloc[-1])
         mae_ewma_list.append(mean_absolute_error(y_true, ewma_pred))
 
-        # 中位數（不受此次改動影響）
+        # 中位數（不受本輪改動影響）
         median_pred = np.full(len(y_true), train_data['Amount'].median())
         mae_median_list.append(mean_absolute_error(y_true, median_pred))
 
-        # Ridge 迴歸 - 修正版：訓練前標準化特徵
-        # 標準化不改變 Ridge 對線性資料的預測能力，MAE 應與舊版接近；
+        # Ridge 迴歸 - 標準化修正版：訓練前對特徵做標準化
+        # 標準化不改變 Ridge 對線性資料的預測能力，MAE 應與未標準化版本接近；
         # 主要差異在係數尺度變得可比，top_feature_name 的結果才有意義。
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(train_data[features])
@@ -160,7 +177,7 @@ def main():
     scores = {"EWMA均線": final_ewma, "中位數模型": final_median, "Ridge迴歸": final_ridge}
     best_model = min(scores, key=scores.get) if scores else "資料量不足"
 
-    # 印出影響預測最深的特徵（現在用標準化後的係數，比較才公平）
+    # 印出影響預測最深的特徵（用標準化後的係數，比較才公平）
     top_feature_name = "N/A"
     if ridge_model is not None:
         coefs = pd.Series(ridge_model.coef_, index=features)
@@ -168,11 +185,13 @@ def main():
         print(f"🎯 [行為解析] 影響你預測模型最深的特徵是: {top_feature_name}")
 
     # ==========================================
-    # 4. Phase 4.2: 大額事件分析（未改動）
+    # 4. Phase 4.2: 大額事件分析
     # ==========================================
+    # 本輪改動：large_events 改用第2.1節已經拆分好的 large_events_df，
+    # 不再從 df_clean 重新篩一次，跟 Phase 4.1/4.3 用的 habitual_df 徹底分流，
+    # event_threshold 也沿用第2.1節算好的同一個門檻，避免重複計算或標準不一致。
     print("🌪️ 執行 Phase 4.2: 洪峰極端值分析...")
-    event_threshold = np.percentile(df_clean['Amount'], 95)
-    large_events = df_clean[df_clean['Amount'] > event_threshold]['Amount']
+    large_events = large_events_df['Amount']
 
     total_days = (df_clean['Date'].max() - df_clean['Date'].min()).days
     total_months = max(total_days / 30.0, 1)
@@ -189,25 +208,50 @@ def main():
         c, expected_magnitude = 0, 0
 
     # ==========================================
-    # 5. Phase 4.3: 趨勢分解 (STL Decomposition)（未改動）
+    # 5. Phase 4.3: 趨勢分解 (STL Decomposition)
     # ==========================================
     print("📈 執行 Phase 4.3: STL 趨勢分解...")
     try:
+        # log1p 轉換修正版
+        # 舊版問題：daily_df 是零膨脹資料，STL即使開了robust=True，也容易把離群尖峰的
+        #   能量錯誤分配進「季節性」分量，導致seasonal_amplitude遠大於current_trend
+        #   這種不合理結果（本輪daily_df已經是habitual_df聚合出來的，尖峰問題已大幅
+        #   緩解，但log1p仍保留作為雙重保險，讓STL對剩餘的日常波動更穩健）。
+        # 修正：對Amount先做log1p壓縮尺度差異，trend/seasonal都在log空間，
+        #   換算回原始尺度時語意要跟著調整：
+        #   - trend：可以合理換回金額（expm1），代表「當前基礎消費水位」
+        #   - seasonal：在log空間是「倍數效應」而非「金額」，換算成「最花錢星期是
+        #     最省錢星期的幾倍」（fold change）才符合log分解的數學意義
         ts_data = daily_df.set_index('Date')['Amount'].asfreq('D').fillna(0)
-        stl = STL(ts_data, period=7, robust=True)
-        res = stl.fit()
-        trend = res.trend
-        seasonal = res.seasonal
+        ts_data_log = np.log1p(ts_data)
 
-        current_trend = trend.iloc[-1]
-        trend_30d_drift = current_trend - trend.iloc[-30] if len(trend) >= 30 else current_trend - trend.iloc[0]
-        seasonal_amplitude = seasonal.max() - seasonal.min()
+        stl = STL(ts_data_log, period=7, robust=True)
+        res = stl.fit()
+        trend_log = res.trend
+        seasonal_log = res.seasonal
+
+        # trend 換回金額尺度，代表當前/30天前的基礎消費水位
+        current_trend = np.expm1(trend_log.iloc[-1])
+        trend_30d_ago = np.expm1(trend_log.iloc[-30]) if len(trend_log) >= 30 else np.expm1(trend_log.iloc[0])
+        trend_30d_drift = current_trend - trend_30d_ago
+
+        # seasonal 換算成「最花錢星期是最省錢星期的幾倍」，單位是倍率不是金額
+        # 修正：不能直接用 seasonal.max()-seasonal.min()！因為只有約30個完整週期，
+        #   同星期不同週的seasonal值仍會抖動（robust=True會依每週殘差動態加權），
+        #   直接抓極值等於抓到「單一天的雜訊」而非「星期幾的代表值」（實測曾抓到
+        #   兩個不相干的單日，算出23.5倍這種不合理數字）。正確做法是先依星期幾
+        #   平均，取得每個星期的「典型」季節效應，再用平均值的極差算倍率。
+        seasonal_df = seasonal_log.reset_index()
+        seasonal_df.columns = ['Date', 'seasonal']
+        seasonal_df['dow'] = seasonal_df['Date'].dt.dayofweek
+        seasonal_by_dow = seasonal_df.groupby('dow')['seasonal'].mean()
+        seasonal_fold_change = np.exp(seasonal_by_dow.max() - seasonal_by_dow.min())
     except Exception as e:
         print(f"❌ STL 分解失敗: {e}")
-        current_trend, trend_30d_drift, seasonal_amplitude = 0, 0, 0
+        current_trend, trend_30d_drift, seasonal_fold_change = 0, 0, 0
 
     # ==========================================
-    # 6. 統一匯出資料庫 (寫回 py_output)（結構未改動）
+    # 6. 統一匯出資料庫 (寫回 py_output)
     # ==========================================
     ws_out = sh.worksheet("py_output")
     taipei_tz = pytz.timezone('Asia/Taipei')
@@ -224,7 +268,7 @@ def main():
         ["event_expected_magnitude", round(expected_magnitude, 0), update_time],
         ["stl_current_trend", round(current_trend, 0), update_time],
         ["stl_30d_drift", round(trend_30d_drift, 0), update_time],
-        ["stl_seasonal_amplitude", round(seasonal_amplitude, 0), update_time],
+        ["stl_seasonal_fold_change", round(seasonal_fold_change, 2), update_time],  # ⚠️改名：舊版是金額amplitude，新版是倍率
         ["model_top_feature", top_feature_name, update_time]
     ]
 

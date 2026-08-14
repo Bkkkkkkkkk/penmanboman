@@ -349,7 +349,10 @@ def main():
 
     # 依輪廓係數(silhouette score)自動挑選群數k(2~6)，不手動猜k，
     # 樣本量約200天、6個維度，k超過6容易切得太碎、不好解讀，先限制上限
-    best_k, best_score, best_model, best_labels = None, -1, None, None
+    # ⚠️ 變數命名特別加上 cluster_ 前綴，避免跟 Phase 4.1 的 best_model（模型PK贏家字串）撞名，
+    #   上次事故：撞名導致 best_model 從字串被覆蓋成 KMeans 物件本身，寫回py_output時
+    #   JSON序列化失敗（TypeError: Object of type KMeans is not JSON serializable）
+    best_cluster_k, best_cluster_score, best_cluster_model, best_cluster_labels = None, -1, None, None
     for k in range(2, 7):
         km = KMeans(n_clusters=k, random_state=42, n_init=10)
         labels = km.fit_predict(X_cluster)
@@ -357,12 +360,12 @@ def main():
             continue
         score = silhouette_score(X_cluster, labels)
         print(f"    k={k}: 輪廓係數={score:.3f}")
-        if score > best_score:
-            best_k, best_score, best_model, best_labels = k, score, km, labels
+        if score > best_cluster_score:
+            best_cluster_k, best_cluster_score, best_cluster_model, best_cluster_labels = k, score, km, labels
 
     cluster_features = cat_pivot.copy()
-    cluster_features['Cluster'] = best_labels
-    print(f"📊 [4.5] 自動選出最佳群數 k={best_k}（輪廓係數={best_score:.3f}，越接近1代表分群品質越好）")
+    cluster_features['Cluster'] = best_cluster_labels
+    print(f"📊 [4.5] 自動選出最佳群數 k={best_cluster_k}（輪廓係數={best_cluster_score:.3f}，越接近1代表分群品質越好）")
 
     # 各群輪廓：天數、平均總花費、主要類別，用來幫每個群取一個好理解的名字
     cluster_summary = cluster_features.groupby('Cluster')[cols].mean()
@@ -414,8 +417,8 @@ def main():
         ["corr_top2_value", corr_top2_value, update_time],
         ["lag_top1_relation", lag_top1_relation, update_time],
         ["lag_top1_value", lag_top1_value, update_time],
-        ["pattern_cluster_k", best_k, update_time],
-        ["pattern_silhouette_score", round(best_score, 3), update_time],
+        ["pattern_cluster_k", best_cluster_k, update_time],
+        ["pattern_silhouette_score", round(best_cluster_score, 3), update_time],
         ["pattern_today_label", today_cluster_name, update_time],
         ["pattern_today_dominant_category", today_dominant_category, update_time]
     ]

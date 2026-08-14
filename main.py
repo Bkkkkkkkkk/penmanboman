@@ -214,6 +214,7 @@ def main():
 
     ws_out.update('A3:C14', export_data)
     print("✅ 全模組戰果與特徵工程已成功寫入 py_output！")
+    print(f"📊 [健檢] is_low 邊際觸發率: {is_low.mean():.1%}（理論應接近25%）")
 
 if __name__ == "__main__":
     main()

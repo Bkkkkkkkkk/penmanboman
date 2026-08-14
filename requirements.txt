@@ -1,0 +1,6 @@
+pandas
+scipy
+scikit-learn
+statsmodels
+gspread
+pytz

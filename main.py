@@ -8,6 +8,8 @@ import pytz
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 import scipy.stats as stats
 from statsmodels.tsa.seasonal import STL
 
@@ -336,7 +338,58 @@ def main():
         lag_top1_relation, lag_top1_value = "資料不足", 0
 
     # ==========================================
-    # 7. 統一匯出資料庫 (寫回 py_output)
+    # 7. Phase 4.5: 消費模式聚類 (KMeans)
+    # ==========================================
+    print("🧩 執行 Phase 4.5: 消費模式聚類...")
+
+    # 沿用 4.4 整理好的「日期×類別」攤平資料當特徵向量，每一天是一筆樣本，
+    # 每個類別的當日金額是一個維度，讓 KMeans 找出「常一起出現的消費組合」
+    scaler_cluster = StandardScaler()
+    X_cluster = scaler_cluster.fit_transform(cat_pivot)
+
+    # 依輪廓係數(silhouette score)自動挑選群數k(2~6)，不手動猜k，
+    # 樣本量約200天、6個維度，k超過6容易切得太碎、不好解讀，先限制上限
+    best_k, best_score, best_model, best_labels = None, -1, None, None
+    for k in range(2, 7):
+        km = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = km.fit_predict(X_cluster)
+        if len(set(labels)) < 2:
+            continue
+        score = silhouette_score(X_cluster, labels)
+        print(f"    k={k}: 輪廓係數={score:.3f}")
+        if score > best_score:
+            best_k, best_score, best_model, best_labels = k, score, km, labels
+
+    cluster_features = cat_pivot.copy()
+    cluster_features['Cluster'] = best_labels
+    print(f"📊 [4.5] 自動選出最佳群數 k={best_k}（輪廓係數={best_score:.3f}，越接近1代表分群品質越好）")
+
+    # 各群輪廓：天數、平均總花費、主要類別，用來幫每個群取一個好理解的名字
+    cluster_summary = cluster_features.groupby('Cluster')[cols].mean()
+    cluster_summary['TotalMean'] = cluster_summary[cols].sum(axis=1)
+    cluster_summary['DayCount'] = cluster_features.groupby('Cluster').size()
+    cluster_summary = cluster_summary.sort_values('TotalMean')
+
+    print("📋 [4.5-群集輪廓]（依平均總花費由低到高排序）")
+    for cluster_id, row in cluster_summary.iterrows():
+        pct = row['DayCount'] / len(cluster_features) * 100
+        top_cat = row[cols].idxmax()
+        print(f"    群{cluster_id}: {row['DayCount']:.0f}天({pct:.1f}%), 平均花費${row['TotalMean']:.0f}, 主要類別:{top_cat}")
+
+    # 依「平均總花費」高低幫每個群取一個直覺的名字（純粹方便閱讀，非模型輸出）
+    sorted_cluster_ids = cluster_summary.index.tolist()
+    name_pool = ['省錢日', '一般日', '花費日', '爆買日', '極端日', '其他']
+    cluster_name_map = {cid: (name_pool[rank] if rank < len(name_pool) else f"群{cid}")
+                         for rank, cid in enumerate(sorted_cluster_ids)}
+
+    # 最近一天（資料最後一天）屬於哪一群
+    today_cluster_id = cluster_features['Cluster'].iloc[-1]
+    today_cluster_name = cluster_name_map[today_cluster_id]
+    today_dominant_category = cluster_summary.loc[today_cluster_id, cols].idxmax()
+    print(f"🎯 [4.5] 最近一天的消費模式：{today_cluster_name}（主要花在：{today_dominant_category}）")
+
+    # ==========================================
+    # 8. 統一匯出資料庫 (寫回 py_output)
     # ==========================================
     ws_out = sh.worksheet("py_output")
     taipei_tz = pytz.timezone('Asia/Taipei')
@@ -360,11 +413,15 @@ def main():
         ["corr_top2_pair", corr_top2_pair, update_time],
         ["corr_top2_value", corr_top2_value, update_time],
         ["lag_top1_relation", lag_top1_relation, update_time],
-        ["lag_top1_value", lag_top1_value, update_time]
+        ["lag_top1_value", lag_top1_value, update_time],
+        ["pattern_cluster_k", best_k, update_time],
+        ["pattern_silhouette_score", round(best_score, 3), update_time],
+        ["pattern_today_label", today_cluster_name, update_time],
+        ["pattern_today_dominant_category", today_dominant_category, update_time]
     ]
 
     # 改用具名參數，避免舊版 gspread 參數順序即將棄用的 DeprecationWarning
-    ws_out.update(range_name='A3:C20', values=export_data)
+    ws_out.update(range_name='A3:C24', values=export_data)
     print("✅ 全模組戰果與特徵工程已成功寫入 py_output！")
 
 if __name__ == "__main__":

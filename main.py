@@ -260,7 +260,83 @@ def main():
         current_trend, trend_30d_drift, seasonal_fold_change = 0, 0, 0
 
     # ==========================================
-    # 6. 統一匯出資料庫 (寫回 py_output)
+    # 6. Phase 4.4: 類別關聯挖掘
+    # ==========================================
+    print("🔗 執行 Phase 4.4: 類別關聯挖掘...")
+
+    # 沿用 habitual_df（已排除大額事件），跟日常分析同一套資料基礎，
+    # 避免像「老婆旅費」這種一次性大額製造出不具代表性的假相關
+    MIN_CATEGORY_COUNT = 20  # 樣本數太少的類別（如3C/家電只有5筆），相關係數不可靠，先排除
+    category_counts = habitual_df['Category'].value_counts()
+    valid_categories = category_counts[category_counts >= MIN_CATEGORY_COUNT].index.tolist()
+    print(f"📊 [4.4] 納入分析的類別（樣本數≥{MIN_CATEGORY_COUNT}）: {valid_categories}")
+
+    cat_habitual = habitual_df[habitual_df['Category'].isin(valid_categories)].copy()
+    cat_pivot = cat_habitual.pivot_table(
+        index=cat_habitual['Date'].dt.date, columns='Category', values='Amount',
+        aggfunc='sum', fill_value=0
+    )
+    cat_pivot.index = pd.to_datetime(cat_pivot.index)
+    full_dates_cat = pd.date_range(cat_pivot.index.min(), cat_pivot.index.max())
+    cat_pivot = cat_pivot.reindex(full_dates_cat, fill_value=0)
+    cols = cat_pivot.columns.tolist()
+
+    # --- 同日相關係數矩陣 ---
+    corr_matrix = cat_pivot.corr()
+    corr_pairs = []
+    for i in range(len(cols)):
+        for j in range(i + 1, len(cols)):
+            corr_pairs.append((cols[i], cols[j], corr_matrix.iloc[i, j]))
+    corr_pairs_sorted = sorted(corr_pairs, key=lambda x: abs(x[2]), reverse=True)
+
+    print("📋 [4.4-同日關聯] Top 5 相關係數配對：")
+    for a, b, v in corr_pairs_sorted[:5]:
+        print(f"    {a} × {b}: {v:+.3f}")
+
+    # --- 滯後關聯：類別A今天 vs 類別B未來1~3天 ---
+    # 樣本量本來就不大（單一類別日常筆數幾十到幾百筆），配對數又多（多重比較問題），
+    # 這邊p值只當「探索方向」參考，不做嚴謹統計推論，之後資料量增加可以再收斂
+    lag_results = []
+    for lag in [1, 2, 3]:
+        for a in cols:
+            for b in cols:
+                if a == b:
+                    continue
+                shifted_b = cat_pivot[b].shift(-lag)
+                valid_mask = shifted_b.notna()
+                if valid_mask.sum() < 30:  # 樣本太少不列入
+                    continue
+                r, p = stats.pearsonr(cat_pivot[a][valid_mask], shifted_b[valid_mask])
+                lag_results.append((a, b, lag, r, p))
+
+    lag_results_sorted = sorted(lag_results, key=lambda x: abs(x[3]), reverse=True)
+    print("📋 [4.4-滯後關聯] Top 5 滯後相關（探索性參考，非嚴謹統計推論）：")
+    for a, b, lag, r, p in lag_results_sorted[:5]:
+        sig_mark = "✓p<0.05" if p < 0.05 else "不顯著"
+        print(f"    {a}(t) → {b}(t+{lag}): r={r:+.3f}, p={p:.3f} {sig_mark}")
+
+    # 摘要成可寫回 py_output 的欄位（同日關聯前2名 + 滯後關聯第1名）
+    if len(corr_pairs_sorted) >= 1:
+        corr_top1_pair = f"{corr_pairs_sorted[0][0]}×{corr_pairs_sorted[0][1]}"
+        corr_top1_value = round(corr_pairs_sorted[0][2], 3)
+    else:
+        corr_top1_pair, corr_top1_value = "資料不足", 0
+
+    if len(corr_pairs_sorted) >= 2:
+        corr_top2_pair = f"{corr_pairs_sorted[1][0]}×{corr_pairs_sorted[1][1]}"
+        corr_top2_value = round(corr_pairs_sorted[1][2], 3)
+    else:
+        corr_top2_pair, corr_top2_value = "資料不足", 0
+
+    if len(lag_results_sorted) >= 1:
+        la, lb, llag, lr, lp = lag_results_sorted[0]
+        lag_top1_relation = f"{la}(t)→{lb}(t+{llag})"
+        lag_top1_value = round(lr, 3)
+    else:
+        lag_top1_relation, lag_top1_value = "資料不足", 0
+
+    # ==========================================
+    # 7. 統一匯出資料庫 (寫回 py_output)
     # ==========================================
     ws_out = sh.worksheet("py_output")
     taipei_tz = pytz.timezone('Asia/Taipei')
@@ -278,10 +354,17 @@ def main():
         ["stl_current_trend", round(current_trend, 0), update_time],
         ["stl_30d_drift", round(trend_30d_drift, 0), update_time],
         ["stl_seasonal_fold_change", round(seasonal_fold_change, 2), update_time],  # ⚠️改名：舊版是金額amplitude，新版是倍率
-        ["model_top_feature", top_feature_name, update_time]
+        ["model_top_feature", top_feature_name, update_time],
+        ["corr_top1_pair", corr_top1_pair, update_time],
+        ["corr_top1_value", corr_top1_value, update_time],
+        ["corr_top2_pair", corr_top2_pair, update_time],
+        ["corr_top2_value", corr_top2_value, update_time],
+        ["lag_top1_relation", lag_top1_relation, update_time],
+        ["lag_top1_value", lag_top1_value, update_time]
     ]
 
-    ws_out.update('A3:C14', export_data)
+    # 改用具名參數，避免舊版 gspread 參數順序即將棄用的 DeprecationWarning
+    ws_out.update(range_name='A3:C20', values=export_data)
     print("✅ 全模組戰果與特徵工程已成功寫入 py_output！")
 
 if __name__ == "__main__":

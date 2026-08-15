@@ -447,6 +447,11 @@ def main():
         ["pattern_cluster_k", best_cluster_k, update_time],
         ["pattern_silhouette_score", round(best_cluster_score, 3), update_time],
     ]
+    # 先清空一段夠寬的範圍再寫入，避免schema變動（例如這次從24列縮成10列）時，
+    # 多出來的舊列變成沒人管的殭屍資料一直留在表上（上次就是這樣，A13:C24還留著
+    # 上一版的corr_top*/lag_top*/pattern_today_*沒被清掉）。A1:A2的表頭/system_status
+    # 不在清空範圍內，不會動到你手動維護的內容。
+    ws_out.batch_clear(["A3:C30"])
     ws_out.update(range_name='A3:C12', values=export_data)
     print("✅ py_output 摘要指標已寫入")
 

@@ -13,6 +13,38 @@ from sklearn.metrics import silhouette_score
 import scipy.stats as stats
 from statsmodels.tsa.seasonal import STL
 
+def sync_params(ws_params, updates, alpha=0.3):
+    """
+    把校準參數寫回params分頁，數值欄位用平滑機制更新（新值佔alpha比例、舊值佔1-alpha），
+    避免單月雜訊讓參數暴衝。沿用既有的「參數名稱｜數值｜說明」三欄格式，
+    只更新我們關心的幾列，完全不動既有的孤兒參數（回測窗口天數/IQR_倍率/趨勢修正係數）。
+    找不到舊值時（第一次寫入、或格式讀取失敗），保守地直接採用新值，不阻斷流程。
+    """
+    existing = ws_params.get_all_values()
+    name_to_row = {row[0]: idx + 1 for idx, row in enumerate(existing) if row}  # 1-indexed，含表頭
+
+    taipei_tz = pytz.timezone('Asia/Taipei')
+    today_str = datetime.now(taipei_tz).strftime("%Y-%m-%d")
+
+    for name, new_value in updates.items():
+        new_value = float(new_value)  # 確保是原生 Python float，避免 numpy 型別造成 JSON 序列化失敗（上次撞名bug的同類風險）
+        if name in name_to_row:
+            row_idx = name_to_row[name]
+            try:
+                old_value = float(existing[row_idx - 1][1])
+                smoothed = round(alpha * new_value + (1 - alpha) * old_value, 1)
+            except (ValueError, IndexError):
+                smoothed = round(new_value, 1)
+            ws_params.update_cell(row_idx, 2, smoothed)
+        else:
+            ws_params.append_row([name, round(new_value, 1), "Python自動新增，說明待補充"])
+
+    if "上次校準日期" in name_to_row:
+        ws_params.update_cell(name_to_row["上次校準日期"], 2, today_str)
+    else:
+        ws_params.append_row(["上次校準日期", today_str, "Python 最後一次更新這些參數的時間"])
+
+
 def main():
     print("🚀 啟動戰術雷達：終極特徵工程與深度分析模組連線中...")
 
@@ -29,6 +61,10 @@ def main():
     ws_raw = sh.worksheet("Raw_Data")
     raw_records = ws_raw.get_all_values()
     df = pd.DataFrame(raw_records[1:], columns=raw_records[0])
+
+    ws_params = sh.worksheet("params")
+    ws_centroids = sh.worksheet("cluster_centroids")
+    ws_diag = sh.worksheet("model_diagnostics")
 
     # ==========================================
     # 2. 資料清洗與聚合
@@ -392,40 +428,73 @@ def main():
     print(f"🎯 [4.5] 最近一天的消費模式：{today_cluster_name}（主要花在：{today_dominant_category}）")
 
     # ==========================================
-    # 8. 統一匯出資料庫 (寫回 py_output)
+    # 8. 統一匯出資料庫（拆成四個分頁，各司其職）
     # ==========================================
-    ws_out = sh.worksheet("py_output")
     taipei_tz = pytz.timezone('Asia/Taipei')
     update_time = datetime.now(taipei_tz).strftime("%Y-%m-%d %H:%M:%S")
 
+    # --- 8.1 py_output：不需平滑、不驅動GAS公式的單一摘要指標 ---
+    ws_out = sh.worksheet("py_output")
     export_data = [
         ["model_mae_ewma", final_ewma, update_time],
         ["model_mae_median", final_median, update_time],
         ["model_mae_ridge", final_ridge, update_time],
         ["model_best_winner", best_model, update_time],
-        ["event_threshold_p95", round(event_threshold, 0), update_time],
+        ["model_top_feature", top_feature_name, update_time],
         ["event_lambda_monthly", round(lambda_poisson, 2), update_time],
         ["event_tail_shape_c", round(c, 3), update_time],
         ["event_expected_magnitude", round(expected_magnitude, 0), update_time],
-        ["stl_current_trend", round(current_trend, 0), update_time],
-        ["stl_30d_drift", round(trend_30d_drift, 0), update_time],
-        ["stl_seasonal_fold_change", round(seasonal_fold_change, 2), update_time],  # ⚠️改名：舊版是金額amplitude，新版是倍率
-        ["model_top_feature", top_feature_name, update_time],
-        ["corr_top1_pair", corr_top1_pair, update_time],
-        ["corr_top1_value", corr_top1_value, update_time],
-        ["corr_top2_pair", corr_top2_pair, update_time],
-        ["corr_top2_value", corr_top2_value, update_time],
-        ["lag_top1_relation", lag_top1_relation, update_time],
-        ["lag_top1_value", lag_top1_value, update_time],
         ["pattern_cluster_k", best_cluster_k, update_time],
         ["pattern_silhouette_score", round(best_cluster_score, 3), update_time],
-        ["pattern_today_label", today_cluster_name, update_time],
-        ["pattern_today_dominant_category", today_dominant_category, update_time]
     ]
+    ws_out.update(range_name='A3:C12', values=export_data)
+    print("✅ py_output 摘要指標已寫入")
 
-    # 改用具名參數，避免舊版 gspread 參數順序即將棄用的 DeprecationWarning
-    ws_out.update(range_name='A3:C24', values=export_data)
-    print("✅ 全模組戰果與特徵工程已成功寫入 py_output！")
+    # --- 8.2 params：驅動GAS每日公式的校準參數，用平滑機制寫入，不覆蓋既有孤兒參數 ---
+    param_updates = {
+        "大額事件門檻(P95)": event_threshold,
+        "基礎消費水位(STL)": current_trend,
+        "30天趨勢漂移": trend_30d_drift,
+        "週末效應倍率(STL)": seasonal_fold_change,
+    }
+    sync_params(ws_params, param_updates, alpha=0.3)
+    print("✅ params 校準參數已平滑更新")
+
+    # --- 8.3 cluster_centroids：三個群的重心，供GAS每日算距離分類用，直接覆蓋不平滑 ---
+    centroid_rows = [["群集", "標籤", "天數", "佔比(%)", "平均總花費"] + cols]
+    for cluster_id, row in cluster_summary.iterrows():
+        pct = round(row['DayCount'] / len(cluster_features) * 100, 1)
+        centroid_rows.append(
+            [int(cluster_id), cluster_name_map[cluster_id], int(row['DayCount']), pct, round(row['TotalMean'], 0)]
+            + [round(row[c], 0) for c in cols]
+        )
+    ws_centroids.clear()
+    ws_centroids.update(range_name='A1', values=centroid_rows)
+    print("✅ cluster_centroids 群心明細已寫入")
+
+    # --- 8.4 model_diagnostics：月報表敘事素材，純資料庫，不驅動任何公式 ---
+    diag_rows = [["類別", "項目", "數值/內容", "備註", "更新時間"]]
+
+    diag_rows.append(["模型健檢", "is_low_raw邊際觸發率", f"{marginal_rate_raw:.1%}", "理論應接近25%", update_time])
+    diag_rows.append(["模型健檢", "Low_Spend_Streak≥2佔比", f"{streak_rate_2plus:.1%}", "理論預期約6%", update_time])
+    diag_rows.append(["模型健檢", "Low_Spend_Streak≥3佔比", f"{streak_rate_3plus:.1%}", "理論預期約1.5%", update_time])
+
+    for feat_name, val in coef_ranked.items():
+        direction = "正相關" if val > 0 else "負相關"
+        diag_rows.append(["Ridge係數排序", feat_name, round(val, 1), direction, update_time])
+
+    for a, b, v in corr_pairs_sorted[:10]:
+        diag_rows.append(["同日類別關聯", f"{a}×{b}", round(v, 3), "", update_time])
+
+    for a, b, lag, r, p in lag_results_sorted[:10]:
+        sig = "p<0.05" if p < 0.05 else "不顯著"
+        diag_rows.append(["滯後類別關聯", f"{a}(t)→{b}(t+{lag})", round(r, 3), f"p={p:.3f}, {sig}", update_time])
+
+    ws_diag.clear()
+    ws_diag.update(range_name='A1', values=diag_rows)
+    print("✅ model_diagnostics 完整診斷資料已寫入")
+
+    print("🎉 全模組戰果已成功分流寫入四個分頁！")
 
 if __name__ == "__main__":
     main()

@@ -1233,7 +1233,7 @@ if (data.bossList && data.bossList.length > 0) {
               estNetTitle.style.color = '#4caf50';
               estNetEl.style.color = '#4caf50';
               estNetEl.innerText = '$' + estNet.toLocaleString();
-              estNetStatusEl.innerText = '本月預期: 盈餘';
+              estNetStatusEl.innerText = '盈餘';
               estNetStatusEl.style.backgroundColor = '#388e3c';
           } else {
               // 赤字狀態：紅色主題
@@ -1241,7 +1241,7 @@ if (data.bossList && data.bossList.length > 0) {
               estNetTitle.style.color = '#ff6384';
               estNetEl.style.color = '#ff6384';
               estNetEl.innerText = '-$' + Math.abs(estNet).toLocaleString();
-              estNetStatusEl.innerText = '本月預期: 赤字';
+              estNetStatusEl.innerText = '赤字';
               estNetStatusEl.style.backgroundColor = '#d32f2f';
           }
       }

@@ -4,3 +4,6 @@ scikit-learn
 statsmodels
 gspread
 pytz
+matplotlib
+reportlab
+Pillow

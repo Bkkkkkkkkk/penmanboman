@@ -1,0 +1,42 @@
+name: 月度結算報告產出
+
+on:
+  schedule:
+    # 這裡設定為每月 1 號 UTC 0:00 觸發（對應台灣時間每月 1 號早上 8:00）
+    - cron: '0 0 1 * *'
+  workflow_dispatch:  # 保留手動觸發選項，方便測試
+
+jobs:
+  run-monthly-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 下載專案程式碼
+        uses: actions/checkout@v4
+        
+      - name: 安裝中文字型
+        # 根據原始碼的提示，必須安裝 fonts-noto-cjk 與 fonts-wqy-zenhei 才能避免圖表與 PDF 產生亂碼[cite: 1]
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk fonts-wqy-zenhei
+        
+      - name: 設定 Python 環境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          
+      - name: 安裝所需套件
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: 執行月報表程式
+        env:
+          # 既有存取 Google 服務的憑證[cite: 3]
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          # 新增的寄信相關環境變數[cite: 1]
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          REPORT_RECIPIENT: ${{ secrets.REPORT_RECIPIENT }}
+        run: |
+          python monthly_report.py

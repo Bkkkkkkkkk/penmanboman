@@ -473,9 +473,28 @@ def main():
             [int(cluster_id), cluster_name_map[cluster_id], int(row['DayCount']), pct, round(row['TotalMean'], 0)]
             + [round(row[c], 0) for c in cols]
         )
+
+    # ⚠️ 新增：把 StandardScaler 訓練時算出的均值/標準差也寫回去，供GAS做「完全一致」
+    #   的標準化距離計算，取代之前GAS自己發明的「相對差異」近似算法。
+    #   背景：近似算法讓「中心值本身較大的類別」在計算時享有不公平的折扣分母，
+    #   實測導致「交通$80」被誤判為接近「爆買日」（交通中心值$966，折扣後偏差反而變小），
+    #   造成分類結果錯誤。用同一套標準化公式，才能徹底解決這個系統性偏誤，而不是繼續打補丁。
+    # 用「群集」欄放特殊標記(SCALER_MEAN/SCALER_STD)區分於真正的群集列（群集欄是數字），
+    # GAS讀取時可以用「這欄是不是數字」來分辨這是真正的群還是標準化參數列。
+    blank_row = [""] * len(centroid_rows[0])
+    centroid_rows.append(blank_row)
+    centroid_rows.append(
+        ["SCALER_MEAN", "標準化參數-各類別平均值(全體歷史)", "", "", ""]
+        + [round(v, 2) for v in scaler_cluster.mean_]
+    )
+    centroid_rows.append(
+        ["SCALER_STD", "標準化參數-各類別標準差(全體歷史)", "", "", ""]
+        + [round(v, 2) for v in scaler_cluster.scale_]
+    )
+
     ws_centroids.clear()
     ws_centroids.update(range_name='A1', values=centroid_rows)
-    print("✅ cluster_centroids 群心明細已寫入")
+    print("✅ cluster_centroids 群心明細已寫入（含標準化參數）")
 
     # --- 8.4 model_diagnostics：月報表敘事素材，純資料庫，不驅動任何公式 ---
     diag_rows = [["類別", "項目", "數值/內容", "備註", "更新時間"]]

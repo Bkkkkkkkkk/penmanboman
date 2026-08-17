@@ -278,6 +278,7 @@
         <span id="month-net-status" style="font-size:0.75rem; padding:3px 8px; border-radius:4px; font-weight:bold; color:#fff;">分析中</span>
       </div>
       <div class="big-number" id="current-month-net" style="margin-top:10px;">$0</div>
+	  <div id="large-event-msg" style="margin-top: 12px; font-size: 0.85rem; font-weight: bold; padding-top: 10px; border-top: 1px dashed #444;"></div>
     </div>
 	  
     <div class="card" style="background: linear-gradient(145deg, #2d2d2d, #252525); text-align:center;">
@@ -826,13 +827,27 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
       if (estNet >= 0) {
           estNetEl.style.color = '#4caf50';
           estNetEl.innerText = '$' + estNet.toLocaleString();
-          estNetStatusEl.innerText = '本月預期: 盈餘';
+          estNetStatusEl.innerText = '盈餘';
           estNetStatusEl.style.backgroundColor = '#388e3c';
       } else {
           estNetEl.style.color = '#ff6384';
           estNetEl.innerText = '-$' + Math.abs(estNet).toLocaleString();
-          estNetStatusEl.innerText = '本月預期: 赤字';
+          estNetStatusEl.innerText = '赤字';
           estNetStatusEl.style.backgroundColor = '#d32f2f';
+      }
+	  var largeEventMsg = data.analytics.largeEventMessage || "";
+      var largeEventMsgEl = document.getElementById('large-event-msg');
+      if (largeEventMsgEl) {
+          largeEventMsgEl.innerText = largeEventMsg;
+          
+          // 根據前方 Icon 自動變更字體顏色
+          if (largeEventMsg.indexOf('⚠️') > -1) {
+              largeEventMsgEl.style.color = '#ffb74d'; // 橘黃色警告
+          } else if (largeEventMsg.indexOf('✅') > -1) {
+              largeEventMsgEl.style.color = '#81c784'; // 綠色安全
+          } else {
+              largeEventMsgEl.style.color = '#aaa';    // 預設灰色
+          }
       }
       
       // 更新女神大人的魔法 (股票餘額)

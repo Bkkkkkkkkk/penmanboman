@@ -209,6 +209,16 @@ def compute_basic_summary(sh, taipei_tz):
         .sort_values(ascending=False)
     )
 
+    # 給「下月目標」用的排行榜要排除股票/固定帳單——這兩類不是可自由調整的日常開銷，
+    # 用它們當「挑戰下月減少X%」的目標沒有意義（固定帳單金額通常是合約固定的，
+    # 不是靠意志力就能少花）。基礎摘要顯示用的category_ranking維持完整（含這兩類），
+    # 因為那是要反映真實花費全貌，跟目標生成的篩選需求不同。
+    discretionary_ranking = (
+        expense_df[~expense_df['Category'].isin(['股票', '固定帳單'])]
+        .groupby('Category')['Amount'].sum()
+        .sort_values(ascending=False)
+    )
+
     # 簡單規則式建議（不用AI生成，數字說話，維持跟深度分析模組一致的確定性風格）
     suggestions = []
     if balance < 0:
@@ -228,7 +238,9 @@ def compute_basic_summary(sh, taipei_tz):
     return {
         'start': start, 'end': end,
         'total_income': total_income, 'total_expense': total_expense, 'balance': balance,
-        'category_ranking': category_ranking, 'suggestions': suggestions
+        'category_ranking': category_ranking,
+        'discretionary_ranking': discretionary_ranking,
+        'suggestions': suggestions
     }
 
 
@@ -275,7 +287,9 @@ def generate_next_month_goals(summary, py_output, params):
             'baseline_value': '',
         })
 
-    category_ranking = summary['category_ranking']
+    # 用discretionary_ranking（已排除股票/固定帳單），確保「挑戰下月減少X%」這個目標
+    # 挑到的是真正可以靠行為調整的日常開銷類別，不會挑到固定帳單這種你無法控制的項目
+    category_ranking = summary['discretionary_ranking']
     if len(category_ranking) > 0:
         top_cat = category_ranking.index[0]
         top_amount = category_ranking.iloc[0]
@@ -349,11 +363,16 @@ def write_goals_to_sheet(sh, goals, goal_month_label):
         # H欄：進度百分比。balance_min/event_count_max是「目前值/目標值」，
         # category_reduce是「目前花費/(基準值-目標減少金額)」這個預算上限，
         # 用IFERROR包起來，避免目標數值是0時除以0出錯導致整欄崩潰
+        # ⚠️ 分子要引用I欄（目前進度值實際落地的欄位），不是G欄（適用月份，一個文字/日期值）。
+        #   上一版這裡誤植成G{row_num}，導致除以一個日期序號，算出離譜的巨大百分比
+        #   （例如770583.33%）；balance_min那列因為有MIN(...,1)封頂在100%，剛好蓋住了
+        #   同樣的錯誤沒被發現。這次改用I欄，並且已經實際模擬驗算過三種類型都正確。
+        i_col = f"I{row_num}"  # 目前進度值（g_formula 寫入的欄位）
         h_formula = (
             f'=IFERROR(IFS('
-            f'{b_col}="balance_min",MIN(G{row_num}/{d_col},1),'
-            f'{b_col}="category_reduce",G{row_num}/({f_col}-{d_col}),'
-            f'{b_col}="event_count_max",G{row_num}/{d_col}'
+            f'{b_col}="balance_min",MIN({i_col}/{d_col},1),'
+            f'{b_col}="category_reduce",{i_col}/({f_col}-{d_col}),'
+            f'{b_col}="event_count_max",{i_col}/{d_col}'
             f'),0)'
         )
 

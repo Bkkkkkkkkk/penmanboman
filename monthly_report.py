@@ -143,6 +143,7 @@ def prepare_daily_series(sh):
     df['Amount'] = df['Amount'].astype(str).str.replace(r'[NT\$,\s]', '', regex=True)
     df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df['Category'] = df['Category'].astype(str).str.strip()
 
     df_clean = df[(df['Type'] == '支出') & (~df['Category'].isin(['股票', '固定帳單']))].copy()
     event_threshold = np.percentile(df_clean['Amount'], 95)
@@ -230,7 +231,10 @@ def compute_basic_summary(sh, taipei_tz):
         top_cat = category_ranking.index[0]
         top_amount = category_ranking.iloc[0]
         top_share = top_amount / total_expense * 100 if total_expense > 0 else 0
-        if top_share > 40:
+        
+        if top_cat in ['股票', '固定帳單']:
+            suggestions.append(f"本月最大支出類別為「{top_cat}」（${top_amount:.0f}），佔比 {top_share:.0f}%，屬於固定或投資性質之開銷。")
+        elif top_share > 40:
             suggestions.append(f"「{top_cat}」佔本月總支出 {top_share:.0f}%，是單一最大宗開銷，可留意是否有節省空間。")
         else:
             suggestions.append(f"本月最大支出類別為「{top_cat}」（${top_amount:.0f}），佔比 {top_share:.0f}%，屬於合理分散範圍。")
@@ -345,7 +349,7 @@ def write_goals_to_sheet(sh, goals, goal_month_label):
         f_col = f"F{row_num}"  # 基準值
         b_col = f"B{row_num}"  # 目標類型
 
-        # G欄：目前實際值，依目標類型分三種算法
+    # G欄：目前實際值，依目標類型分三種算法 (實際會寫入到試算表的 I 欄)
         g_formula = (
             f'=IFS('
             f'{b_col}="balance_min",'
@@ -355,7 +359,8 @@ def write_goals_to_sheet(sh, goals, goal_month_label):
             f'SUMIFS(db_main!F:F,db_main!C:C,"支出",db_main!D:D,{e_col},'
             f'db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1)),'
             f'{b_col}="event_count_max",'
-            f'COUNTIFS(db_main!C:C,"支出",db_main!F:F,">"&VLOOKUP("大額事件門檻(P95)",params!A:B,2,FALSE),'
+            f'COUNTIFS(db_main!C:C,"支出",db_main!D:D,"<>股票",db_main!D:D,"<>固定帳單",'
+            f'db_main!F:F,">"&VLOOKUP("大額事件門檻(P95)",params!A:B,2,FALSE),'
             f'db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1))'
             f')'
         )

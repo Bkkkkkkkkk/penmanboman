@@ -191,6 +191,65 @@
     /* 獨立魔法蓄力條 (藍) */
     .boss-mp-bar { background: rgba(33, 150, 243, 0.2); height: 6px; border-radius: 3px; overflow: hidden; margin-top: 4px; }
     .boss-mp-fill { background: #2196f3; height: 100%; transition: width 1s ease-out; }
+	/* 🗡️ 系統任務面板 (我獨自升級風格) */
+    .quest-window {
+      background: linear-gradient(180deg, rgba(10,20,30,0.95) 0%, rgba(5,10,15,0.95) 100%);
+      border: 1px solid rgba(0, 195, 255, 0.4);
+      box-shadow: 0 0 15px rgba(0, 195, 255, 0.15), inset 0 0 20px rgba(0, 195, 255, 0.05);
+      border-radius: 4px; /* 系統視窗較為方正冷酷 */
+      padding: 15px;
+      margin-bottom: 15px;
+      position: relative;
+    }
+    .quest-window::before {
+      content: "!";
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background: #FFD700;
+      color: #000;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 24px;
+      font-weight: 900;
+      box-shadow: 0 0 10px #FFD700;
+      animation: pulse-magic 2s infinite alternate;
+    }
+    .quest-header {
+      color: #00c3ff;
+      font-size: 1.1rem;
+      font-weight: bold;
+      border-bottom: 1px dashed rgba(0, 195, 255, 0.5);
+      padding-bottom: 5px;
+      margin-bottom: 10px;
+      letter-spacing: 1px;
+    }
+    .quest-desc {
+      color: #e0e0e0;
+      font-size: 0.95rem;
+      margin-bottom: 15px;
+      line-height: 1.4;
+    }
+    .quest-progress-bg {
+      background: rgba(255, 255, 255, 0.1);
+      height: 6px;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 5px;
+    }
+    .quest-progress-fill {
+      height: 100%;
+      transition: width 1s ease-out;
+    }
+    .quest-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      margin-top: 10px;
+      font-family: monospace;
+    }
   </style>
 </head>
 <body>
@@ -436,11 +495,13 @@
         <table id="top5-table"></table>
     </div>
 
-  </div> <div id="battle" style="display:none;">
+	<div id="battle" style="display:none;">
       
       <div id="battle-hero" class="card system-window-glow" style="text-align:center; padding:30px 20px;">
           <h3 style="color:#aaa; margin:0 0 10px 0;">讀取戰報中...</h3>
       </div>
+
+      <div id="quest-container"></div>
 
       <div class="card">
         <h2>⚔️ 近期戰役履歷 <span class="sub-title">(近7日)</span></h2>
@@ -1381,7 +1442,67 @@ if (data.bossList && data.bossList.length > 0) {
             </div>
          </div>
        `;
+     
        document.getElementById('battle-hero').innerHTML = html;
+
+       // ==========================================
+       // 🗡️ 渲染：系統發布的月度試煉任務
+       // ==========================================
+       var questHtml = '';
+       if (data.monthlyGoals && data.monthlyGoals.length > 0) {
+           questHtml += `<h2 style="color:#00c3ff; text-shadow:0 0 5px rgba(0,195,255,0.5); margin-top:25px; margin-bottom:10px;">[ 系統發布：本月晉升任務 ]</h2>`;
+           
+           data.monthlyGoals.forEach(function(goal) {
+               // 判斷任務類型 (預算管控/次數管控 vs 結餘目標)
+               var isBudget = (goal.type === 'category_reduce' || goal.type === 'event_count_max');
+               var p = goal.percent * 100;
+               var isFailed = isBudget && (p > 100);       // 預算超標 = 失敗
+               var isSuccess = (!isBudget && p >= 100);    // 結餘達標 = 成功
+               
+               var barColor = "#00c3ff"; // 預設：系統藍
+               var statusText = "進行中 (IN PROGRESS)";
+               var statusColor = "#00c3ff";
+
+               if (isFailed) {
+                   barColor = "#ff4444"; // 失敗：警告紅
+                   statusText = "任務失敗 (FAILED)";
+                   statusColor = "#ff4444";
+               } else if (isSuccess) {
+                   barColor = "#FFD700"; // 成功：傳說金
+                   statusText = "條件達成 (CLEARED)";
+                   statusColor = "#FFD700";
+               } else if (isBudget && p >= 80) {
+                   barColor = "#ff9800"; // 警戒：橘色
+               }
+
+               var pWidth = Math.min(100, p);
+               var displayCurrent = (goal.type === 'event_count_max') ? goal.currentValue + " 次" : "$" + goal.currentValue.toLocaleString();
+               var displayTarget = (goal.type === 'event_count_max') ? goal.targetValue + " 次" : "$" + goal.targetValue.toLocaleString();
+
+               questHtml += `
+               <div class="quest-window">
+                   <div class="quest-header">【 一般任務 】</div>
+                   <div class="quest-desc">${goal.desc}</div>
+                   
+                   <div style="display:flex; justify-content:space-between; color:${statusColor}; font-weight:bold; font-size:0.85rem;">
+                       <span>${statusText}</span>
+                       <span>${displayCurrent} / ${displayTarget}</span>
+                   </div>
+                   <div class="quest-progress-bg">
+                       <div class="quest-progress-fill" style="width:${pWidth}%; background:${barColor}; box-shadow: 0 0 8px ${barColor};"></div>
+                   </div>
+                   
+                   <div class="quest-meta" style="color:#888;">
+                       <span>[ 任務獎勵：未知 ]</span>
+                       <span>[ 失敗懲罰：無 ]</span>
+                   </div>
+               </div>`;
+           });
+       }
+       var questContainer = document.getElementById('quest-container');
+       if (questContainer) questContainer.innerHTML = questHtml;
+
+         
 
        // 4. 生成圖示列表
        var iconHtml = '';

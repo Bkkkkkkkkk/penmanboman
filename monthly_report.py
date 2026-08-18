@@ -263,22 +263,18 @@ def chart_category_ranking(category_ranking, out_dir):
     return path
 
 
-# ==========================================
-# 下月目標生成：規則式，不用AI，2~3條，寫回 monthly_goals 分頁供前端讀取
-# ==========================================
-# ⚠️ 架構調整：不再輸出純文字，改成結構化資料（目標類型/目標數值/比較類別/基準值），
-#   因為「進度」要由試算表公式每天即時算（Python只在月初跑一次，沒辦法算逐日進度），
-#   公式需要拆開的欄位才能運作，純文字沒辦法被公式解析。
+
 def generate_next_month_goals(summary, py_output, params):
     goals = []
 
+    # 1. 結餘目標 (balance_min)
     balance = summary['balance']
     if balance >= 0:
         target = round(balance * 0.9, -2) if balance > 0 else 0
         goals.append({
             'type': 'balance_min',
             'desc': f"維持結餘為正，目標下月結餘不低於 ${target:.0f}",
-            'target_value': float(target),
+            'target_value': float(target), # 填入 D 欄
             'category': '',
             'baseline_value': '',
         })
@@ -291,105 +287,99 @@ def generate_next_month_goals(summary, py_output, params):
             'baseline_value': '',
         })
 
-    # 用discretionary_ranking（已排除股票/固定帳單），確保「挑戰下月減少X%」這個目標
-    # 挑到的是真正可以靠行為調整的日常開銷類別，不會挑到固定帳單這種你無法控制的項目
-    category_ranking = summary['discretionary_ranking']
-    if len(category_ranking) > 0:
-        top_cat = category_ranking.index[0]
-        top_amount = category_ranking.iloc[0]
-        reduce_target = round(top_amount * 0.1, -1)
-        goals.append({
-            'type': 'category_reduce',
-            'desc': f"挑戰「{top_cat}」類別下月減少 ${reduce_target:.0f}（約10%）",
-            'target_value': float(reduce_target),
-            'category': top_cat,
-            'baseline_value': float(round(top_amount, 0)),
-        })
-
+    # 2. 大額支出頻率 (event_count_max)
     event_lambda = to_float(py_output.get('event_lambda_monthly'), default=None)
     if event_lambda is not None:
         target_count = round(event_lambda)
         goals.append({
             'type': 'event_count_max',
             'desc': f"留意大額支出頻率，下月目標控制在 {target_count} 次以內",
-            'target_value': target_count,
+            'target_value': target_count, # 填入 D 欄
             'category': '',
             'baseline_value': '',
         })
 
-    return goals[:3]  # 最多3條，符合「2~3個當月任務」的需求
+    # 3. 指定類別預算上限挑戰 (category_reduce)
+    # 預設的抽選目標池
+    target_categories = ['飲料', '餐費', '點心/消夜', '居家生活', '娛樂/旅遊/玩具', '服飾/理髮', '3C/家電']
+    expense_series = summary['category_ranking']
+    
+    for cat in target_categories:
+        baseline = expense_series.get(cat, 0)
+        
+        # 動態條件判斷：如果上個月該類別消費不到 1000 元，就不產生這個任務
+        # (避免出現上個月只花 100，這個月目標 90 這種無感的任務)
+        if baseline >= 1000:
+            # 算出目標上限金額：上個月花費的 90% (即減少 10%)，並取到十位數
+            target_amount = round(baseline * 0.9, -1)
+            goals.append({
+                'type': 'category_reduce',
+                'desc': f"挑戰「{cat}」類別管控，本月預算上限 ${target_amount:.0f}",
+                'target_value': float(target_amount),  # 填入 D 欄：已改為「支出上限金額」
+                'category': cat,                       # 填入 E 欄
+                'baseline_value': float(baseline),     # 填入 F 欄
+            })
 
+    return goals
+
+import random  # 請確保檔案最上方有 import random
 
 def write_goals_to_sheet(sh, goals, goal_month_label):
-    """
-    寫入 monthly_goals 分頁，分頁不存在會自動建立。
-    G/H欄位是試算表公式，用來每天即時算「目前進度」跟「進度百分比」，
-    Python只負責定義目標本身（目標類型/數值/比較類別/基準值），不算進度。
-
-    ⚠️ 重要：公式字串要用 value_input_option='USER_ENTERED' 寫入，
-    否則gspread預設會把"="開頭的字串當純文字寫入儲存格，不會被試算表當公式解析。
-    """
     try:
         ws = sh.worksheet("monthly_goals")
     except gspread.exceptions.WorksheetNotFound:
-        ws = sh.add_worksheet(title="monthly_goals", rows=20, cols=10)
+        # 欄位擴充到 11 欄 (至 K 欄)
+        ws = sh.add_worksheet(title="monthly_goals", rows=20, cols=11)
 
     ws.clear()
     taipei_tz = pytz.timezone('Asia/Taipei')
     now_str = datetime.now(taipei_tz).strftime("%Y-%m-%d %H:%M:%S")
 
+    # 定義表頭
     header = ["目標編號", "目標類型", "描述文字", "目標數值", "比較類別", "基準值",
-              "適用月份", "建立時間", "目前進度值", "進度百分比"]
+              "適用月份", "建立時間", "目前進度值", "進度百分比", "是否顯示"]
     rows = [header]
 
+    # 執行隨機抽選 (K欄邏輯)：從所有生成的任務中，隨機挑出 3 個
+    total_goals = len(goals)
+    draw_count = min(3, total_goals) # 防呆：若生成的任務池小於 3 個，則全部顯示
+    selected_ids = random.sample(range(1, total_goals + 1), draw_count)
+
     for i, goal in enumerate(goals, start=1):
-        row_num = i + 1  # 第1列是表頭，資料從第2列開始
+        row_num = i + 1
         d_col = f"D{row_num}"  # 目標數值
         e_col = f"E{row_num}"  # 比較類別
-        f_col = f"F{row_num}"  # 基準值
-        b_col = f"B{row_num}"  # 目標類型
+        i_col = f"I{row_num}"  # 目前進度值
+        
+        # 判斷此任務是否為當月抽中的任務
+        is_displayed = True if i in selected_ids else False
 
-    # G欄：目前實際值，依目標類型分三種算法 (實際會寫入到試算表的 I 欄)
-        g_formula = (
-            f'=IFS('
-            f'{b_col}="balance_min",'
-            f'SUMIFS(db_main!F:F,db_main!C:C,"收入",db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1))'
-            f'-SUMIFS(db_main!F:F,db_main!C:C,"支出",db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1)),'
-            f'{b_col}="category_reduce",'
-            f'SUMIFS(db_main!F:F,db_main!C:C,"支出",db_main!D:D,{e_col},'
-            f'db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1)),'
-            f'{b_col}="event_count_max",'
-            f'COUNTIFS(db_main!C:C,"支出",db_main!D:D,"<>股票",db_main!D:D,"<>固定帳單",'
-            f'db_main!F:F,">"&VLOOKUP("大額事件門檻(P95)",params!A:B,2,FALSE),'
-            f'db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1))'
-            f')'
-        )
+        # 針對不同任務類型，給予固定的簡單公式
+        if goal['type'] == 'balance_min':
+            i_formula = '=dashboard_calc!B58'
+            j_formula = f'=IFERROR(MIN({i_col}/{d_col},1),0)'
 
-        # H欄：進度百分比。balance_min/event_count_max是「目前值/目標值」，
-        # category_reduce是「目前花費/(基準值-目標減少金額)」這個預算上限，
-        # 用IFERROR包起來，避免目標數值是0時除以0出錯導致整欄崩潰
-        # ⚠️ 分子要引用I欄（目前進度值實際落地的欄位），不是G欄（適用月份，一個文字/日期值）。
-        #   上一版這裡誤植成G{row_num}，導致除以一個日期序號，算出離譜的巨大百分比
-        #   （例如770583.33%）；balance_min那列因為有MIN(...,1)封頂在100%，剛好蓋住了
-        #   同樣的錯誤沒被發現。這次改用I欄，並且已經實際模擬驗算過三種類型都正確。
-        i_col = f"I{row_num}"  # 目前進度值（g_formula 寫入的欄位）
-        h_formula = (
-            f'=IFERROR(IFS('
-            f'{b_col}="balance_min",MIN({i_col}/{d_col},1),'
-            f'{b_col}="category_reduce",{i_col}/({f_col}-{d_col}),'
-            f'{b_col}="event_count_max",{i_col}/{d_col}'
-            f'),0)'
-        )
+        elif goal['type'] == 'category_reduce':
+            i_formula = f'=SUMIFS(db_main!F:F,db_main!C:C,"支出",db_main!D:D,{e_col},db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1))'
+            # 因為 D 欄已經是「預算上限」了，所以進度直接用 花費(I) / 上限(D)
+            j_formula = f'=IFERROR({i_col}/{d_col},0)'
+
+        elif goal['type'] == 'event_count_max':
+            i_formula = '=dashboard_calc!B71'
+            j_formula = f'=IFERROR({i_col}/{d_col},0)'
+            
+        else:
+            i_formula = '=0'
+            j_formula = '=0'
 
         rows.append([
             i, goal['type'], goal['desc'], goal['target_value'],
             goal['category'], goal['baseline_value'],
-            goal_month_label, now_str, g_formula, h_formula
+            goal_month_label, now_str, i_formula, j_formula, is_displayed
         ])
 
     ws.update(range_name='A1', values=rows, value_input_option='USER_ENTERED')
-    print(f"✅ monthly_goals 已寫入 {len(goals)} 條下月目標（含每日進度公式）")
-
+    print(f"✅ monthly_goals 已寫入 {total_goals} 條下月任務，並隨機抽選了 {draw_count} 條顯示")
 
 # ==========================================
 # 圖表產出（每個函式回傳存檔路徑）

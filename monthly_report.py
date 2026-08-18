@@ -93,6 +93,39 @@ def read_model_diagnostics(ws):
     return {name: group for name, group in df.groupby('類別')}
 
 
+def compute_isweekend_ratio(diagnostics):
+    """
+    算IsWeekend領先第二名特徵的倍數，用來判斷平假日二分法是否還是最佳切分方式。
+    背景：我們討論過，只要這個比值維持在1.5倍以上，代表二分法還是穩贏，不用改；
+    低於1.5倍時才需要認真評估要不要做7天分桶。這不是自動觸發警報的規則，
+    只是把數字準備好放進月報表，由你自己每月回顧時判斷。
+    """
+    coef_df = diagnostics.get('Ridge係數排序')
+    if coef_df is None or coef_df.empty:
+        return None, None, False
+
+    coef_df = coef_df.copy()
+    coef_df['abs_val'] = pd.to_numeric(coef_df['數值/內容'], errors='coerce').abs()
+    coef_df = coef_df.sort_values('abs_val', ascending=False)
+
+    if len(coef_df) < 2:
+        return None, None, False
+
+    top_name = coef_df.iloc[0]['項目']
+    top_val = coef_df.iloc[0]['abs_val']
+    second_name = coef_df.iloc[1]['項目']
+    second_val = coef_df.iloc[1]['abs_val']
+
+    if top_name != 'IsWeekend' or second_val == 0:
+        # IsWeekend不是第一名時，這個監控指標本身就不適用，回傳None讓呼叫端知道要跳過
+        return None, None, False
+
+    ratio = top_val / second_val
+    is_low = ratio < 1.5
+    ratio_text = f"IsWeekend領先幅度：{top_val:.1f} / {second_val:.1f}（{second_name}） = {ratio:.2f}倍"
+    return ratio_text, ratio, is_low
+
+
 # ==========================================
 # 資料準備：日常/大額分離 + 每日序列 + STL
 # ==========================================
@@ -137,6 +170,201 @@ def prepare_daily_series(sh):
     cat_pivot = cat_pivot.reindex(full_dates, fill_value=0)
 
     return ts, trend, cat_pivot
+
+
+# ==========================================
+# 基礎財務摘要：上月總收入/總支出/結餘/類別排行/建議
+# ==========================================
+# ⚠️ 注意：這裡刻意用「完整的Raw_Data」，不像深度分析那樣排除股票/固定帳單/大額事件。
+#   「結餘」這種基礎數字要反映真實的錢包狀況，不能只看habitual_df這個為了統計建模
+#   而篩選過的子集，兩邊資料範圍不同是刻意的設計，不是不一致的bug。
+def get_last_month_range(taipei_tz):
+    now = datetime.now(taipei_tz)
+    first_day_this_month = now.replace(day=1)
+    last_day_last_month = first_day_this_month - pd.Timedelta(days=1)
+    first_day_last_month = last_day_last_month.replace(day=1)
+    return (pd.Timestamp(first_day_last_month.date()),
+            pd.Timestamp(last_day_last_month.date()))
+
+
+def compute_basic_summary(sh, taipei_tz):
+    ws_raw = sh.worksheet("Raw_Data")
+    raw_records = ws_raw.get_all_values()
+    df = pd.DataFrame(raw_records[1:], columns=raw_records[0])
+
+    df['Amount'] = df['Amount'].astype(str).str.replace(r'[NT\$,\s]', '', regex=True)
+    df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+
+    start, end = get_last_month_range(taipei_tz)
+    month_df = df[(df['Date'] >= start) & (df['Date'] <= end)].copy()
+
+    total_income = month_df[month_df['Type'] == '收入']['Amount'].sum()
+    expense_df = month_df[month_df['Type'] == '支出']
+    total_expense = expense_df['Amount'].sum()
+    balance = total_income - total_expense
+
+    category_ranking = (
+        expense_df.groupby('Category')['Amount'].sum()
+        .sort_values(ascending=False)
+    )
+
+    # 簡單規則式建議（不用AI生成，數字說話，維持跟深度分析模組一致的確定性風格）
+    suggestions = []
+    if balance < 0:
+        suggestions.append(f"⚠️ 本月支出超過收入 ${abs(balance):.0f}，結餘為負，建議檢視是否有非必要開銷可以縮減。")
+    else:
+        suggestions.append(f"✅ 本月結餘為正 ${balance:.0f}，維持目前的收支節奏。")
+
+    if len(category_ranking) > 0:
+        top_cat = category_ranking.index[0]
+        top_amount = category_ranking.iloc[0]
+        top_share = top_amount / total_expense * 100 if total_expense > 0 else 0
+        if top_share > 40:
+            suggestions.append(f"「{top_cat}」佔本月總支出 {top_share:.0f}%，是單一最大宗開銷，可留意是否有節省空間。")
+        else:
+            suggestions.append(f"本月最大支出類別為「{top_cat}」（${top_amount:.0f}），佔比 {top_share:.0f}%，屬於合理分散範圍。")
+
+    return {
+        'start': start, 'end': end,
+        'total_income': total_income, 'total_expense': total_expense, 'balance': balance,
+        'category_ranking': category_ranking, 'suggestions': suggestions
+    }
+
+
+def chart_category_ranking(category_ranking, out_dir):
+    if category_ranking.empty:
+        return None
+    top_n = category_ranking.head(8).sort_values()
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    ax.barh(top_n.index, top_n.values, color='#2a78d6')
+    ax.set_title('本月開銷分類排行')
+    ax.set_xlabel('金額($)')
+    fig.tight_layout()
+    path = os.path.join(out_dir, 'chart_category_ranking.png')
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+# ==========================================
+# 下月目標生成：規則式，不用AI，2~3條，寫回 monthly_goals 分頁供前端讀取
+# ==========================================
+# ⚠️ 架構調整：不再輸出純文字，改成結構化資料（目標類型/目標數值/比較類別/基準值），
+#   因為「進度」要由試算表公式每天即時算（Python只在月初跑一次，沒辦法算逐日進度），
+#   公式需要拆開的欄位才能運作，純文字沒辦法被公式解析。
+def generate_next_month_goals(summary, py_output, params):
+    goals = []
+
+    balance = summary['balance']
+    if balance >= 0:
+        target = round(balance * 0.9, -2) if balance > 0 else 0
+        goals.append({
+            'type': 'balance_min',
+            'desc': f"維持結餘為正，目標下月結餘不低於 ${target:.0f}",
+            'target_value': float(target),
+            'category': '',
+            'baseline_value': '',
+        })
+    else:
+        goals.append({
+            'type': 'balance_min',
+            'desc': "力求下月結餘轉正，檢視固定支出與非必要開銷",
+            'target_value': 0,
+            'category': '',
+            'baseline_value': '',
+        })
+
+    category_ranking = summary['category_ranking']
+    if len(category_ranking) > 0:
+        top_cat = category_ranking.index[0]
+        top_amount = category_ranking.iloc[0]
+        reduce_target = round(top_amount * 0.1, -1)
+        goals.append({
+            'type': 'category_reduce',
+            'desc': f"挑戰「{top_cat}」類別下月減少 ${reduce_target:.0f}（約10%）",
+            'target_value': float(reduce_target),
+            'category': top_cat,
+            'baseline_value': float(round(top_amount, 0)),
+        })
+
+    event_lambda = to_float(py_output.get('event_lambda_monthly'), default=None)
+    if event_lambda is not None:
+        target_count = round(event_lambda)
+        goals.append({
+            'type': 'event_count_max',
+            'desc': f"留意大額支出頻率，下月目標控制在 {target_count} 次以內",
+            'target_value': target_count,
+            'category': '',
+            'baseline_value': '',
+        })
+
+    return goals[:3]  # 最多3條，符合「2~3個當月任務」的需求
+
+
+def write_goals_to_sheet(sh, goals, goal_month_label):
+    """
+    寫入 monthly_goals 分頁，分頁不存在會自動建立。
+    G/H欄位是試算表公式，用來每天即時算「目前進度」跟「進度百分比」，
+    Python只負責定義目標本身（目標類型/數值/比較類別/基準值），不算進度。
+
+    ⚠️ 重要：公式字串要用 value_input_option='USER_ENTERED' 寫入，
+    否則gspread預設會把"="開頭的字串當純文字寫入儲存格，不會被試算表當公式解析。
+    """
+    try:
+        ws = sh.worksheet("monthly_goals")
+    except gspread.exceptions.WorksheetNotFound:
+        ws = sh.add_worksheet(title="monthly_goals", rows=20, cols=10)
+
+    ws.clear()
+    taipei_tz = pytz.timezone('Asia/Taipei')
+    now_str = datetime.now(taipei_tz).strftime("%Y-%m-%d %H:%M:%S")
+
+    header = ["目標編號", "目標類型", "描述文字", "目標數值", "比較類別", "基準值",
+              "適用月份", "建立時間", "目前進度值", "進度百分比"]
+    rows = [header]
+
+    for i, goal in enumerate(goals, start=1):
+        row_num = i + 1  # 第1列是表頭，資料從第2列開始
+        d_col = f"D{row_num}"  # 目標數值
+        e_col = f"E{row_num}"  # 比較類別
+        f_col = f"F{row_num}"  # 基準值
+        b_col = f"B{row_num}"  # 目標類型
+
+        # G欄：目前實際值，依目標類型分三種算法
+        g_formula = (
+            f'=IFS('
+            f'{b_col}="balance_min",'
+            f'SUMIFS(db_main!F:F,db_main!C:C,"收入",db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1))'
+            f'-SUMIFS(db_main!F:F,db_main!C:C,"支出",db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1)),'
+            f'{b_col}="category_reduce",'
+            f'SUMIFS(db_main!F:F,db_main!C:C,"支出",db_main!D:D,{e_col},'
+            f'db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1)),'
+            f'{b_col}="event_count_max",'
+            f'COUNTIFS(db_main!C:C,"支出",db_main!F:F,">"&VLOOKUP("大額事件門檻(P95)",params!A:B,2,FALSE),'
+            f'db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1))'
+            f')'
+        )
+
+        # H欄：進度百分比。balance_min/event_count_max是「目前值/目標值」，
+        # category_reduce是「目前花費/(基準值-目標減少金額)」這個預算上限，
+        # 用IFERROR包起來，避免目標數值是0時除以0出錯導致整欄崩潰
+        h_formula = (
+            f'=IFERROR(IFS('
+            f'{b_col}="balance_min",MIN(G{row_num}/{d_col},1),'
+            f'{b_col}="category_reduce",G{row_num}/({f_col}-{d_col}),'
+            f'{b_col}="event_count_max",G{row_num}/{d_col}'
+            f'),0)'
+        )
+
+        rows.append([
+            i, goal['type'], goal['desc'], goal['target_value'],
+            goal['category'], goal['baseline_value'],
+            goal_month_label, now_str, g_formula, h_formula
+        ])
+
+    ws.update(range_name='A1', values=rows, value_input_option='USER_ENTERED')
+    print(f"✅ monthly_goals 已寫入 {len(goals)} 條下月目標（含每日進度公式）")
 
 
 # ==========================================
@@ -243,7 +471,8 @@ def chart_cluster_pie(categories, clusters_df, out_dir):
 # PDF 組裝
 # ==========================================
 
-def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_paths):
+def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_paths,
+              isweekend_ratio_info, basic_summary, goals):
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -291,8 +520,40 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
     story.append(Paragraph(f"勇者記帳RPG 月度結算報告 — {report_month}", title_style))
     story.append(Spacer(1, 12))
 
-    # --- 區塊1：本月總覽 ---
-    story.append(Paragraph("本月總覽", heading_style))
+    # --- 區塊0：基礎財務摘要（新增） ---
+    story.append(Paragraph("本月基礎財務摘要", heading_style))
+    bs = basic_summary
+    financial_lines = [
+        f"統計區間：{bs['start'].strftime('%Y-%m-%d')} ~ {bs['end'].strftime('%Y-%m-%d')}",
+        f"總收入：${bs['total_income']:.0f}　總支出：${bs['total_expense']:.0f}　結餘：${bs['balance']:.0f}",
+    ]
+    for line in financial_lines:
+        story.append(Paragraph(line, body_style))
+    for s in bs['suggestions']:
+        story.append(Paragraph(s, body_style))
+    story.append(Spacer(1, 12))
+
+    # --- 開銷分類排行圖 ---
+    cat_chart = chart_paths.get('category_ranking')
+    if cat_chart and os.path.exists(cat_chart):
+        story.append(Paragraph("開銷分類排行", heading_style))
+        from PIL import Image as PILImage
+        with PILImage.open(cat_chart) as im:
+            img_w, img_h = im.size
+        display_width = 15 * cm
+        display_height = display_width * (img_h / img_w)
+        story.append(Image(cat_chart, width=display_width, height=display_height))
+        story.append(Spacer(1, 16))
+
+    # --- 下月目標（新增） ---
+    if goals:
+        story.append(Paragraph("下月目標", heading_style))
+        for i, goal in enumerate(goals, start=1):
+            story.append(Paragraph(f"{i}. {goal['desc']}", body_style))
+        story.append(Spacer(1, 16))
+
+    # --- 區塊1：本月總覽（原有，加上IsWeekend領先幅度提醒） ---
+    story.append(Paragraph("模型分析總覽", heading_style))
     stl_trend = params.get('基礎消費水位(STL)', 'N/A')
     trend_drift = params.get('30天趨勢漂移', 'N/A')
     event_lambda = py_output.get('event_lambda_monthly', 'N/A')
@@ -306,6 +567,22 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
     ]
     for line in summary_lines:
         story.append(Paragraph(line, body_style))
+
+    # IsWeekend領先幅度提醒（新增）：只在IsWeekend確實是第一名時才顯示。
+    # ⚠️ 說明文字這次改成「不管數字高低都要顯示」，之前的版本只在低於1.5倍時
+    #   才附註解釋，但這樣過幾個月你看到單獨一個「1.81倍」的數字，早就忘記
+    #   這代表什麼、門檻是多少——提醒的重點是「持續提供脈絡」，不是「只在異常時才說明」。
+    ratio_text, ratio_value, is_low = isweekend_ratio_info
+    if ratio_text:
+        story.append(Paragraph(ratio_text, body_style))
+        story.append(Paragraph(
+            "（提醒：這個比值代表平假日二分法領先第二名特徵的倍數，"
+            "維持1.5倍以上代表二分法仍是最佳切分方式；低於1.5倍時，可考慮評估7天分桶的必要性）",
+            body_style))
+        if is_low:
+            story.append(Paragraph(
+                "⚠️ 目前已低於1.5倍門檻，建議這個月認真評估是否要改成7天分桶。",
+                body_style))
     story.append(Spacer(1, 16))
 
     # --- 區塊2~5：圖表 ---
@@ -390,6 +667,11 @@ def main():
     categories, clusters_df = read_cluster_centroids(sh.worksheet("cluster_centroids"))
     diagnostics = read_model_diagnostics(sh.worksheet("model_diagnostics"))
 
+    taipei_tz = pytz.timezone('Asia/Taipei')
+
+    print("💰 計算上月基礎財務摘要...")
+    basic_summary = compute_basic_summary(sh, taipei_tz)
+
     print("📊 重建每日序列與STL趨勢（供繪圖用）...")
     ts, trend, cat_pivot = prepare_daily_series(sh)
 
@@ -403,14 +685,23 @@ def main():
         'coef': chart_coefficients(diagnostics, out_dir),
         'corr': chart_correlation_heatmap(cat_pivot, out_dir),
         'pie': chart_cluster_pie(categories, clusters_df, out_dir),
+        'category_ranking': chart_category_ranking(basic_summary['category_ranking'], out_dir),
     }
 
-    taipei_tz = pytz.timezone('Asia/Taipei')
+    print("📐 計算IsWeekend領先幅度...")
+    isweekend_ratio_info = compute_isweekend_ratio(diagnostics)
+
+    print("🎯 產生下月目標...")
+    goals = generate_next_month_goals(basic_summary, py_output, params)
+    goal_month_label = datetime.now(taipei_tz).strftime("%Y年%m月")
+    write_goals_to_sheet(sh, goals, goal_month_label)
+
     report_month = datetime.now(taipei_tz).strftime("%Y年%m月")
 
     print("📄 組裝PDF...")
     pdf_path = f"/tmp/monthly_report_{datetime.now(taipei_tz).strftime('%Y%m')}.pdf"
-    build_pdf(pdf_path, report_month, py_output, params, diagnostics, chart_paths)
+    build_pdf(pdf_path, report_month, py_output, params, diagnostics, chart_paths,
+              isweekend_ratio_info, basic_summary, goals)
 
     print("📧 寄送報告...")
     send_report_email(pdf_path, report_month)

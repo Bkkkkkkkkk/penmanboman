@@ -7,3 +7,4 @@ pytz
 matplotlib
 reportlab
 Pillow
+requests

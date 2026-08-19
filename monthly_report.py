@@ -10,6 +10,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
+import requests
 
 import matplotlib
 matplotlib.use('Agg')  # 無頭環境（GitHub Actions）不能開視窗，一定要在import pyplot前設定
@@ -21,13 +22,6 @@ from statsmodels.tsa.seasonal import STL
 # ==========================================
 # 中文字型設定
 # ==========================================
-# ⚠️ GitHub Actions的ubuntu runner預設沒有中文字型，matplotlib畫出來的中文
-#   會變成一堆空白方框。這裡會嘗試找系統上第一個可用的CJK字型；
-#   如果完全找不到（代表workflow裡沒有安裝字型），會印出警告但不中斷執行——
-#   寧可圖表中文顯示不出來，也不要讓整個月報表任務失敗、寄不出信。
-#   對應的workflow yaml需要加這一步（跑在pip install之前）：
-#     - name: 安裝中文字型
-#       run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk fonts-wqy-zenhei
 def setup_chinese_font():
     cjk_candidates = ['Noto Sans CJK JP', 'Noto Sans CJK TC', 'Noto Sans CJK SC',
                        'WenQuanYi Zen Hei', 'Microsoft JhengHei', 'PingFang TC']
@@ -42,12 +36,7 @@ def setup_chinese_font():
           "請確認GitHub Actions workflow有安裝 fonts-noto-cjk。")
 
 
-# ==========================================
-# 資料讀取輔助函式
-# ==========================================
-
 def read_key_value_sheet(ws, key_col=0, val_col=1):
-    """把 py_output / params 這種 key-value 格式的分頁讀成字典"""
     rows = ws.get_all_values()
     result = {}
     for row in rows:
@@ -64,7 +53,6 @@ def to_float(value, default=0.0):
 
 
 def read_cluster_centroids(ws):
-    """讀 cluster_centroids，回傳 (categories, clusters_df)，clusters_df只含真正的群集列"""
     data = ws.get_all_values()
     if not data:
         return [], pd.DataFrame()
@@ -73,7 +61,7 @@ def read_cluster_centroids(ws):
     rows = []
     for row in data[1:]:
         if not row or not row[0] or not row[0].lstrip('-').isdigit():
-            continue  # 跳過空白列 / SCALER_MEAN / SCALER_STD 這些非群集列
+            continue
         rows.append(row)
     if not rows:
         return categories, pd.DataFrame()
@@ -85,7 +73,6 @@ def read_cluster_centroids(ws):
 
 
 def read_model_diagnostics(ws):
-    """讀 model_diagnostics，回傳依「類別」分組的 DataFrame 字典"""
     data = ws.get_all_values()
     if not data:
         return {}
@@ -94,12 +81,6 @@ def read_model_diagnostics(ws):
 
 
 def compute_isweekend_ratio(diagnostics):
-    """
-    算IsWeekend領先第二名特徵的倍數，用來判斷平假日二分法是否還是最佳切分方式。
-    背景：我們討論過，只要這個比值維持在1.5倍以上，代表二分法還是穩贏，不用改；
-    低於1.5倍時才需要認真評估要不要做7天分桶。這不是自動觸發警報的規則，
-    只是把數字準備好放進月報表，由你自己每月回顧時判斷。
-    """
     coef_df = diagnostics.get('Ridge係數排序')
     if coef_df is None or coef_df.empty:
         return None, None, False
@@ -117,7 +98,6 @@ def compute_isweekend_ratio(diagnostics):
     second_val = coef_df.iloc[1]['abs_val']
 
     if top_name != 'IsWeekend' or second_val == 0:
-        # IsWeekend不是第一名時，這個監控指標本身就不適用，回傳None讓呼叫端知道要跳過
         return None, None, False
 
     ratio = top_val / second_val
@@ -126,15 +106,6 @@ def compute_isweekend_ratio(diagnostics):
     return ratio_text, ratio, is_low
 
 
-# ==========================================
-# 資料準備：日常/大額分離 + 每日序列 + STL
-# ==========================================
-# ⚠️ 技術債提醒：這段跟 main.py（日報深度分析腳本）的 Phase 2.1/4.3 邏輯是重複的
-#   （日常/大額分離、STL趨勢分解），因為月報表需要「完整的每日序列」畫趨勢圖，
-#   但 main.py 目前只把「最終數字」（如stl_current_trend）寫回py_output，沒有
-#   把整條序列存下來。如果未來main.py的分離邏輯有調整，這裡要記得同步修改，
-#   不然兩邊的「日常消費」定義會兜不起來。長期可以考慮讓main.py額外把每日序列
-#   寫進一個新分頁，這裡直接讀就好，不用重算，但這次先用重算版本快速交付。
 def prepare_daily_series(sh):
     ws_raw = sh.worksheet("Raw_Data")
     raw_records = ws_raw.get_all_values()
@@ -173,12 +144,6 @@ def prepare_daily_series(sh):
     return ts, trend, cat_pivot
 
 
-# ==========================================
-# 基礎財務摘要：上月總收入/總支出/結餘/類別排行/建議
-# ==========================================
-# ⚠️ 注意：這裡刻意用「完整的Raw_Data」，不像深度分析那樣排除股票/固定帳單/大額事件。
-#   「結餘」這種基礎數字要反映真實的錢包狀況，不能只看habitual_df這個為了統計建模
-#   而篩選過的子集，兩邊資料範圍不同是刻意的設計，不是不一致的bug。
 def get_last_month_range(taipei_tz):
     now = datetime.now(taipei_tz)
     first_day_this_month = now.replace(day=1)
@@ -210,17 +175,12 @@ def compute_basic_summary(sh, taipei_tz):
         .sort_values(ascending=False)
     )
 
-    # 給「下月目標」用的排行榜要排除股票/固定帳單——這兩類不是可自由調整的日常開銷，
-    # 用它們當「挑戰下月減少X%」的目標沒有意義（固定帳單金額通常是合約固定的，
-    # 不是靠意志力就能少花）。基礎摘要顯示用的category_ranking維持完整（含這兩類），
-    # 因為那是要反映真實花費全貌，跟目標生成的篩選需求不同。
     discretionary_ranking = (
         expense_df[~expense_df['Category'].isin(['股票', '固定帳單'])]
         .groupby('Category')['Amount'].sum()
         .sort_values(ascending=False)
     )
 
-    # 簡單規則式建議（不用AI生成，數字說話，維持跟深度分析模組一致的確定性風格）
     suggestions = []
     if balance < 0:
         suggestions.append(f"⚠️ 本月支出超過收入 ${abs(balance):.0f}，結餘為負，建議檢視是否有非必要開銷可以縮減。")
@@ -231,7 +191,7 @@ def compute_basic_summary(sh, taipei_tz):
         top_cat = category_ranking.index[0]
         top_amount = category_ranking.iloc[0]
         top_share = top_amount / total_expense * 100 if total_expense > 0 else 0
-        
+
         if top_cat in ['股票', '固定帳單']:
             suggestions.append(f"本月最大支出類別為「{top_cat}」（${top_amount:.0f}），佔比 {top_share:.0f}%，屬於固定或投資性質之開銷。")
         elif top_share > 40:
@@ -263,18 +223,16 @@ def chart_category_ranking(category_ranking, out_dir):
     return path
 
 
-
 def generate_next_month_goals(summary, py_output, params):
     goals = []
 
-    # 1. 結餘目標 (balance_min)
     balance = summary['balance']
     if balance >= 0:
         target = round(balance * 0.9, -2) if balance > 0 else 0
         goals.append({
             'type': 'balance_min',
             'desc': f"維持結餘為正，目標下月結餘不低於 ${target:.0f}",
-            'target_value': float(target), # 填入 D 欄
+            'target_value': float(target),
             'category': '',
             'baseline_value': '',
         })
@@ -287,87 +245,76 @@ def generate_next_month_goals(summary, py_output, params):
             'baseline_value': '',
         })
 
-    # 2. 大額支出頻率 (event_count_max)
     event_lambda = to_float(py_output.get('event_lambda_monthly'), default=None)
     if event_lambda is not None:
         target_count = round(event_lambda)
         goals.append({
             'type': 'event_count_max',
             'desc': f"留意大額支出頻率，下月目標控制在 {target_count} 次以內",
-            'target_value': target_count, # 填入 D 欄
+            'target_value': target_count,
             'category': '',
             'baseline_value': '',
         })
 
-    # 3. 指定類別預算上限挑戰 (category_reduce)
-    # 預設的抽選目標池
     target_categories = ['飲料', '餐費', '點心/消夜', '居家生活', '娛樂/旅遊/玩具', '服飾/理髮', '3C/家電']
     expense_series = summary['category_ranking']
-    
+
     for cat in target_categories:
         baseline = expense_series.get(cat, 0)
-        
-        # 動態條件判斷：如果上個月該類別消費不到 1000 元，就不產生這個任務
-        # (避免出現上個月只花 100，這個月目標 90 這種無感的任務)
         if baseline >= 1000:
-            # 算出目標上限金額：上個月花費的 90% (即減少 10%)，並取到十位數
             target_amount = round(baseline * 0.9, -1)
             goals.append({
                 'type': 'category_reduce',
                 'desc': f"挑戰「{cat}」類別管控，本月預算上限 ${target_amount:.0f}",
-                'target_value': float(target_amount),  # 填入 D 欄：已改為「支出上限金額」
-                'category': cat,                       # 填入 E 欄
-                'baseline_value': float(baseline),     # 填入 F 欄
+                'target_value': float(target_amount),
+                'category': cat,
+                'baseline_value': float(baseline),
             })
 
     return goals
 
-import random  # 請確保檔案最上方有 import random
+
+import random
+
 
 def write_goals_to_sheet(sh, goals, goal_month_label):
     try:
         ws = sh.worksheet("monthly_goals")
     except gspread.exceptions.WorksheetNotFound:
-        # 欄位擴充到 11 欄 (至 K 欄)
         ws = sh.add_worksheet(title="monthly_goals", rows=20, cols=11)
 
     ws.clear()
     taipei_tz = pytz.timezone('Asia/Taipei')
     now_str = datetime.now(taipei_tz).strftime("%Y-%m-%d %H:%M:%S")
 
-    # 定義表頭
     header = ["目標編號", "目標類型", "描述文字", "目標數值", "比較類別", "基準值",
               "適用月份", "建立時間", "目前進度值", "進度百分比", "是否顯示"]
     rows = [header]
 
-    # 執行隨機抽選 (K欄邏輯)：從所有生成的任務中，隨機挑出 3 個
     total_goals = len(goals)
-    draw_count = min(3, total_goals) # 防呆：若生成的任務池小於 3 個，則全部顯示
+    draw_count = min(3, total_goals)
     selected_ids = random.sample(range(1, total_goals + 1), draw_count)
 
     for i, goal in enumerate(goals, start=1):
         row_num = i + 1
-        d_col = f"D{row_num}"  # 目標數值
-        e_col = f"E{row_num}"  # 比較類別
-        i_col = f"I{row_num}"  # 目前進度值
-        
-        # 判斷此任務是否為當月抽中的任務
+        d_col = f"D{row_num}"
+        e_col = f"E{row_num}"
+        i_col = f"I{row_num}"
+
         is_displayed = True if i in selected_ids else False
 
-        # 針對不同任務類型，給予固定的簡單公式
         if goal['type'] == 'balance_min':
             i_formula = '=dashboard_calc!B58'
             j_formula = f'=IFERROR(MIN({i_col}/{d_col},1),0)'
 
         elif goal['type'] == 'category_reduce':
             i_formula = f'=SUMIFS(db_main!F:F,db_main!C:C,"支出",db_main!D:D,{e_col},db_main!B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1))'
-            # 因為 D 欄已經是「預算上限」了，所以進度直接用 花費(I) / 上限(D)
             j_formula = f'=IFERROR({i_col}/{d_col},0)'
 
         elif goal['type'] == 'event_count_max':
             i_formula = '=dashboard_calc!B71'
             j_formula = f'=IFERROR({i_col}/{d_col},0)'
-            
+
         else:
             i_formula = '=0'
             j_formula = '=0'
@@ -381,9 +328,6 @@ def write_goals_to_sheet(sh, goals, goal_month_label):
     ws.update(range_name='A1', values=rows, value_input_option='USER_ENTERED')
     print(f"✅ monthly_goals 已寫入 {total_goals} 條下月任務，並隨機抽選了 {draw_count} 條顯示")
 
-# ==========================================
-# 圖表產出（每個函式回傳存檔路徑）
-# ==========================================
 
 def chart_trend(ts, trend, out_dir):
     fig, ax = plt.subplots(figsize=(7, 3.2))
@@ -481,10 +425,6 @@ def chart_cluster_pie(categories, clusters_df, out_dir):
     return path
 
 
-# ==========================================
-# PDF 組裝
-# ==========================================
-
 def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_paths,
               isweekend_ratio_info, basic_summary, goals):
     from reportlab.lib.pagesizes import A4
@@ -494,22 +434,11 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    # 註冊中文字型給reportlab用（跟matplotlib分開設定，reportlab不會自動抓系統字型）
-    # ⚠️ 踩過兩個坑，記錄一下：
-    #   1. Noto Sans CJK是OpenType/CFF格式，reportlab的TTFont不支援，會直接報錯
-    #      "postscript outlines are not supported"。
-    #   2. 改用reportlab內建CID字型（如MSung-Light）雖然不報錯，但實測會產生
-    #      亂碼（PDF閱讀器/poppler渲染CID字型時的字符映射跟預期不符，抽取出來的
-    #      文字是完全錯誤的中文字，肉眼看甚至像是空白，因為字符對應錯亂）。
-    #   最終方案：改用 WenQuanYi Zen Hei（真正的TrueType/glyf格式字型，Ubuntu套件
-    #   fonts-wqy-zenhei），直接embed進PDF，實測文字擷取完全正確，不會亂碼。
-    #   對應workflow yaml的字型安裝步驟要記得也裝這個：
-    #     sudo apt-get install -y fonts-noto-cjk fonts-wqy-zenhei
     cjk_font_paths = [
         '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
         '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
     ]
-    cjk_font_name = 'Helvetica'  # fallback，中文會顯示不出來但至少不會整份報表崩潰
+    cjk_font_name = 'Helvetica'
     for fp in cjk_font_paths:
         if os.path.exists(fp):
             try:
@@ -534,7 +463,6 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
     story.append(Paragraph(f"勇者記帳RPG 月度結算報告 — {report_month}", title_style))
     story.append(Spacer(1, 12))
 
-    # --- 區塊0：基礎財務摘要（新增） ---
     story.append(Paragraph("本月基礎財務摘要", heading_style))
     bs = basic_summary
     financial_lines = [
@@ -547,7 +475,6 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
         story.append(Paragraph(s, body_style))
     story.append(Spacer(1, 12))
 
-    # --- 開銷分類排行圖 ---
     cat_chart = chart_paths.get('category_ranking')
     if cat_chart and os.path.exists(cat_chart):
         story.append(Paragraph("開銷分類排行", heading_style))
@@ -559,14 +486,12 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
         story.append(Image(cat_chart, width=display_width, height=display_height))
         story.append(Spacer(1, 16))
 
-    # --- 下月目標（新增） ---
     if goals:
         story.append(Paragraph("下月目標", heading_style))
         for i, goal in enumerate(goals, start=1):
             story.append(Paragraph(f"{i}. {goal['desc']}", body_style))
         story.append(Spacer(1, 16))
 
-    # --- 區塊1：本月總覽（原有，加上IsWeekend領先幅度提醒） ---
     story.append(Paragraph("模型分析總覽", heading_style))
     stl_trend = params.get('基礎消費水位(STL)', 'N/A')
     trend_drift = params.get('30天趨勢漂移', 'N/A')
@@ -582,10 +507,6 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
     for line in summary_lines:
         story.append(Paragraph(line, body_style))
 
-    # IsWeekend領先幅度提醒（新增）：只在IsWeekend確實是第一名時才顯示。
-    # ⚠️ 說明文字這次改成「不管數字高低都要顯示」，之前的版本只在低於1.5倍時
-    #   才附註解釋，但這樣過幾個月你看到單獨一個「1.81倍」的數字，早就忘記
-    #   這代表什麼、門檻是多少——提醒的重點是「持續提供脈絡」，不是「只在異常時才說明」。
     ratio_text, ratio_value, is_low = isweekend_ratio_info
     if ratio_text:
         story.append(Paragraph(ratio_text, body_style))
@@ -599,7 +520,6 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
                 body_style))
     story.append(Spacer(1, 16))
 
-    # --- 區塊2~5：圖表 ---
     chart_titles = {
         'trend': '每日花費與基礎趨勢',
         'mae': '模型健康度',
@@ -612,14 +532,12 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
         if not path or not os.path.exists(path):
             continue
         story.append(Paragraph(title, heading_style))
-        # 依圖檔實際寬高比動態算顯示高度，避免所有圖表被強制套用同一個框而變形
-        # （踩過的坑：圓餅圖原始檔是正方形，套用固定的15cm×9cm框會被拉伸成橢圓）
         from PIL import Image as PILImage
         with PILImage.open(path) as im:
             img_w, img_h = im.size
         display_width = 15 * cm
         display_height = display_width * (img_h / img_w)
-        max_height = 18 * cm  # 避免過高的圖表超出頁面太多
+        max_height = 18 * cm
         if display_height > max_height:
             display_height = max_height
             display_width = display_height * (img_w / img_h)
@@ -629,10 +547,6 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
     doc.build(story)
     return out_path
 
-
-# ==========================================
-# 寄信
-# ==========================================
 
 def send_report_email(pdf_path, report_month):
     sender = os.environ.get("GMAIL_ADDRESS")
@@ -663,8 +577,43 @@ def send_report_email(pdf_path, report_month):
 
 
 # ==========================================
-# 主流程
+# LINE 通知：月報寄出後，順便提醒去看信箱
 # ==========================================
+# ⚠️ 設計原則：這是「錦上添花」的附加通知，不是主線任務。就算LINE發送失敗
+#   （網路問題、token過期等），也絕對不能讓整個月報流程被視為失敗——PDF已經
+#   產出、信也已經寄出，這兩件事才是真正重要的產出。這裡整支函式包在
+#   try/except裡呼叫，失敗只印警告，不會讓main()整個中斷或回傳非0結束碼。
+#   TOKEN/USER_ID沿用你GAS那邊同一組LINE Messaging API bot設定，
+#   但因為Python是在GitHub Actions環境跑，要另外存一份GitHub Secrets
+#   （不會跟GAS的Script Properties共用，兩邊要分別設定，值可以相同）。
+def send_line_notification(report_month):
+    access_token = os.environ.get("LINE_ACCESS_TOKEN")
+    user_id = os.environ.get("LINE_USER_ID")
+
+    if not access_token or not user_id:
+        print("⚠️ 缺少 LINE_ACCESS_TOKEN 或 LINE_USER_ID，跳過LINE通知（不影響月報表已寄出）")
+        return
+
+    message_text = f"📜 系統通知：{report_month} 月度結算報告已產出並寄送至信箱，記得去查看戰果！"
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "to": user_id,
+        "messages": [{"type": "text", "text": message_text}]
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=10)
+        if resp.status_code == 200:
+            print("✅ LINE通知已送出")
+        else:
+            print(f"⚠️ LINE通知失敗（狀態碼 {resp.status_code}）：{resp.text}")
+    except requests.RequestException as e:
+        print(f"⚠️ LINE通知發送時發生連線錯誤（不影響月報表已寄出）：{e}")
+
 
 def main():
     print("📜 啟動月度結算報告產出...")
@@ -719,6 +668,9 @@ def main():
 
     print("📧 寄送報告...")
     send_report_email(pdf_path, report_month)
+
+    print("📱 發送LINE通知...")
+    send_line_notification(report_month)
 
     print("🎉 月度結算報告流程完成！")
 

@@ -208,6 +208,46 @@ def compute_basic_summary(sh, taipei_tz):
     }
 
 
+# ==========================================
+# 讀取 forecast_1y 工作表（新增）
+# ==========================================
+def read_forecast_1y(ws):
+    """
+    讀取 forecast_1y 工作表，依「【區塊標題】」切成多個 section。
+    假設欄位順序為：A=項目名稱 / B=數值 / C=說明文字
+    回傳格式：[(section_title, [(label, value, desc), ...]), ...]
+    """
+    rows = ws.get_all_values()
+    sections = []
+    current_title = None
+    current_rows = []
+
+    for row in rows:
+        if not row or not any(cell.strip() for cell in row):
+            continue  # 跳過空白列
+
+        label = row[0].strip() if len(row) > 0 else ''
+
+        if label.startswith('【') and label.endswith('】'):
+            if current_title is not None:
+                sections.append((current_title, current_rows))
+            current_title = label.strip('【】')
+            current_rows = []
+            continue
+
+        if not label:
+            continue
+
+        value = row[1].strip() if len(row) > 1 else ''
+        desc = row[2].strip() if len(row) > 2 else ''
+        current_rows.append((label, value, desc))
+
+    if current_title is not None:
+        sections.append((current_title, current_rows))
+
+    return sections
+
+
 def chart_category_ranking(category_ranking, out_dir):
     if category_ranking.empty:
         return None
@@ -425,10 +465,72 @@ def chart_cluster_pie(categories, clusters_df, out_dir):
     return path
 
 
+# ==========================================
+# 組成 forecast_1y 的 reportlab 表格頁面（新增）
+# ==========================================
+def build_forecast_flowables(sections, heading_style, body_style, cjk_font_name):
+    """
+    把 read_forecast_1y() 讀出來的 sections 轉成一串 reportlab flowables
+    （每個 section 一個標題 + 一張表格），可以直接 story.extend(...)
+    負數數值會自動變紅字，跟截圖的風格一致。
+    """
+    from reportlab.platypus import Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+
+    flowables = []
+
+    for title, rows in sections:
+        if not rows:
+            continue
+
+        flowables.append(Paragraph(title, heading_style))
+
+        table_data = []
+        for label, value, desc in rows:
+            is_negative = value.strip().startswith('-')
+            value_style = ParagraphStyle(
+                f'ValCell_{id(value)}',
+                parent=body_style,
+                textColor=colors.HexColor('#d9534f') if is_negative else colors.black,
+                fontName=cjk_font_name,
+            )
+            label_style = ParagraphStyle(
+                f'LabelCell_{id(label)}', parent=body_style, fontName=cjk_font_name
+            )
+            desc_style = ParagraphStyle(
+                f'DescCell_{id(desc)}', parent=body_style, fontName=cjk_font_name,
+                fontSize=8.5, textColor=colors.HexColor('#555555'),
+            )
+            table_data.append([
+                Paragraph(label, label_style),
+                Paragraph(value, value_style),
+                Paragraph(desc, desc_style),
+            ])
+
+        table = Table(table_data, colWidths=[4.3 * cm, 3.2 * cm, 8.5 * cm])
+        table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), cjk_font_name),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#dddddd')),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.white, colors.HexColor('#f7f7f5')]),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ]))
+        flowables.append(table)
+        flowables.append(Spacer(1, 10))
+
+    return flowables
+
+
 def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_paths,
-              isweekend_ratio_info, basic_summary, goals):
+              isweekend_ratio_info, basic_summary, goals, forecast_sections):
     from reportlab.lib.pagesizes import A4
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
     from reportlab.pdfbase import pdfmetrics
@@ -490,6 +592,18 @@ def build_pdf(out_path, report_month, py_output, params, diagnostics, chart_path
         story.append(Paragraph("下月目標", heading_style))
         for i, goal in enumerate(goals, start=1):
             story.append(Paragraph(f"{i}. {goal['desc']}", body_style))
+        story.append(Spacer(1, 16))
+
+    # ------------------------------------------
+    # 未來一年財務推估（forecast_1y，新增的一頁）
+    # ------------------------------------------
+    if forecast_sections:
+        story.append(PageBreak())
+        story.append(Paragraph(f"未來一年財務推估總覽 — {report_month}", title_style))
+        story.append(Spacer(1, 10))
+        story.extend(build_forecast_flowables(
+            forecast_sections, heading_style, body_style, cjk_font_name
+        ))
         story.append(Spacer(1, 16))
 
     story.append(Paragraph("模型分析總覽", heading_style))
@@ -630,6 +744,9 @@ def main():
     categories, clusters_df = read_cluster_centroids(sh.worksheet("cluster_centroids"))
     diagnostics = read_model_diagnostics(sh.worksheet("model_diagnostics"))
 
+    print("🔮 讀取未來一年財務推估 (forecast_1y)...")
+    forecast_sections = read_forecast_1y(sh.worksheet("forecast_1y"))
+
     taipei_tz = pytz.timezone('Asia/Taipei')
 
     print("💰 計算上月基礎財務摘要...")
@@ -664,7 +781,7 @@ def main():
     print("📄 組裝PDF...")
     pdf_path = f"/tmp/monthly_report_{datetime.now(taipei_tz).strftime('%Y%m')}.pdf"
     build_pdf(pdf_path, report_month, py_output, params, diagnostics, chart_paths,
-              isweekend_ratio_info, basic_summary, goals)
+              isweekend_ratio_info, basic_summary, goals, forecast_sections)
 
     print("📧 寄送報告...")
     send_report_email(pdf_path, report_month)

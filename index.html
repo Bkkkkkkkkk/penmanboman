@@ -275,7 +275,10 @@
     </div>
 	<div class="card" style="border-left: 5px solid #2196f3;">
       <h2>💚 當前小隊血量 <span class="sub-title">(總現金結餘)</span></h2>
-      <div class="big-number" id="current-hp" style="color:#2196f3;">$0</div>
+      <div style="display: flex; align-items: baseline; gap: 8px;">
+        <div class="big-number" id="current-hp" style="color:#2196f3;">$0</div>
+        <div id="hp-note" style="font-size: 0.9rem; color: #888;">(0)</div>
+      </div>
     </div>
     <div class="card">
       <h2>🩸 本次任務後小隊HP量... <span class="sub-title">(本月閒錢水位)</span></h2>
@@ -338,6 +341,7 @@
       </div>
       <div class="big-number" id="current-month-net" style="margin-top:10px;">$0</div>
 	  <div id="large-event-msg" style="margin-top: 12px; font-size: 0.85rem; font-weight: bold; padding-top: 10px; border-top: 1px dashed #444;"></div>
+	  <div id="large-event-threshold" style="font-size: 0.8rem; color: #888; margin-top: 5px;"></div>
     </div>
 	  
     <div class="card" style="background: linear-gradient(145deg, #2d2d2d, #252525); text-align:center;">
@@ -444,6 +448,7 @@
       </div>
 
     <div id="rsi-card-container"></div>
+	<div id="investment-card-container"></div>	
       <div class="card" style="padding:15px; border-left: 3px solid #ab47bc; display:flex; justify-content:space-between; align-items:center;">
          <div>
             <h2 style="font-size:1rem; color:#ab47bc; margin:0 0 5px 0;">⚖️ 資源分配結構 (吉尼係數)</h2>
@@ -877,6 +882,7 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
       if (data.totalEstimatedUnpaid > 0) totalHtml += '<br><span style="font-size:0.4em; color:#888; margin-left:10px;">(還有 $' + data.totalEstimatedUnpaid.toLocaleString() + '點傷害即將到來... )</span>';
       document.getElementById('total-expense').innerHTML = totalHtml;
       document.getElementById('current-hp').innerText = '$' + (data.currentHP || 0).toLocaleString();
+	  document.getElementById('hp-note').innerText = '(' + (data.hpNote || 0).toLocaleString() + ')';
 		// 寫入長期戰略淨資產 (小灰字)
       document.getElementById('long-term-net').innerText = '($' + (data.longTermStrategicNet || 0).toLocaleString() + ')';
 
@@ -898,6 +904,28 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
       }
 	  var largeEventMsg = data.analytics.largeEventMessage || "";
       var largeEventMsgEl = document.getElementById('large-event-msg');
+	  // 1. 寫入大額事件門檻
+      var largeEventThresholdEl = document.getElementById('large-event-threshold');
+      if (largeEventThresholdEl) {
+          largeEventThresholdEl.innerText = '大額事件門檻：$' + (data.largeEventThreshold || 0).toLocaleString();
+      }
+
+      // 2. 渲染建議定期定額卡片
+      var invContainer = document.getElementById('investment-card-container');
+      if (invContainer) {
+          var invHtml = `
+          <div style="background-color: #2b2b2b; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 5px solid #ff9800; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                  <h2 style="font-size:1rem; color:#ff9800; margin:0 0 5px 0;">💰 建議定期定額</h2>
+                  <div style="font-size:0.8rem; color:#888;">*基於資金水位推算</div>
+              </div>
+              <div style="text-align:right;">
+                  <div style="font-size:1.5rem; font-weight:bold; color:#e0e0e0;">$${(data.suggestedInvestment || 0).toLocaleString()}</div>
+              </div>
+          </div>
+          `;
+          invContainer.innerHTML = invHtml;
+      }	
       if (largeEventMsgEl) {
           largeEventMsgEl.innerText = largeEventMsg;
           

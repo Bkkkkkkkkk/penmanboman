@@ -910,14 +910,27 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
           largeEventThresholdEl.innerText = '大額事件門檻：$' + (data.largeEventThreshold || 0).toLocaleString();
       }
 
+      
       // 2. 渲染建議定期定額卡片
       var invContainer = document.getElementById('investment-card-container');
       if (invContainer) {
           var invHtml = `
+          <!-- 上方卡片：本期定期定額 (讀取 B78) -->
+          <div style="background-color: #2b2b2b; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 5px solid #4caf50; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                  <h2 style="font-size:1rem; color:#4caf50; margin:0 0 5px 0;">💰 本期定期定額</h2>
+                  <div style="font-size:0.8rem; color:#888;">*本期已扣除 / 預定金額</div>
+              </div>
+              <div style="text-align:right;">
+                  <div style="font-size:1.5rem; font-weight:bold; color:#e0e0e0;">$${(data.currentInvestment || 0).toLocaleString()}</div>
+              </div>
+          </div>
+
+          <!-- 下方卡片：下期建議定額 (讀取 B77) -->
           <div style="background-color: #2b2b2b; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 5px solid #ff9800; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; justify-content: space-between; align-items: center;">
               <div>
-                  <h2 style="font-size:1rem; color:#ff9800; margin:0 0 5px 0;">💰 下期定期定額建議</h2>
-                  <div style="font-size:0.8rem; color:#888;">*隨現金水位及股利餘額調整</div>
+                  <h2 style="font-size:1rem; color:#ff9800; margin:0 0 5px 0;">🔮 下期建議定額</h2>
+                  <div style="font-size:0.8rem; color:#888;">*基於資金水位推算</div>
               </div>
               <div style="text-align:right;">
                   <div style="font-size:1.5rem; font-weight:bold; color:#e0e0e0;">$${(data.suggestedInvestment || 0).toLocaleString()}</div>
@@ -925,7 +938,7 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
           </div>
           `;
           invContainer.innerHTML = invHtml;
-      }	
+      }
       if (largeEventMsgEl) {
           largeEventMsgEl.innerText = largeEventMsg;
           

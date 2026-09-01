@@ -3,7 +3,7 @@ name: 月度結算報告產出
 on:
   schedule:
     # 這裡設定為每月 1 號 UTC 0:00 觸發（對應台灣時間每月 1 號早上 10:00）
-    - cron: '0 2 1 * *'
+    - cron: '5 1 1 * *'
   workflow_dispatch:  # 保留手動觸發選項，方便測試
 
 jobs:

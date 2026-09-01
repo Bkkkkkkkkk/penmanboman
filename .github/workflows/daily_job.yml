@@ -2,7 +2,7 @@ name: Python 數據中台管線測試
 
 on:
   schedule:
-    - cron: '0 18 1 * *'  # 每月1號UTC 18:00觸發 = 台灣時間每月2號凌晨2點
+    - cron: '0 1 1 * *'  # 每月1號UTC 18:00觸發 = 台灣時間每月1號早上9點
   workflow_dispatch:  # 保留手動觸發選項，方便你之後想臨時重跑
 
 jobs:

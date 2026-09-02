@@ -1146,7 +1146,7 @@ if (data.bossList && data.bossList.length > 0) {
       var billHtml = '';
       (data.bills||[]).forEach(b => {
         var color = b.paid ? '#e0e0e0' : '#777';
-        var text = b.paid ? `<div>$${b.amount.toLocaleString()}</div><div style="font-size:0.75em;color:#aaa;font-weight:normal;margin-top:2px;">(${b.lastPaidDate})</div>` : (b.estimatedAmount>0 ? `<div>未納貢</div><div style="font-size:0.75em;color:#666;font-weight:normal;">(預估 $${b.estimatedAmount.toLocaleString()}${b.nextDueDate ? ' · 下次 '+b.nextDueDate : ''})</div>` : '未納貢');
+        var text = b.paid ? `<div>$${b.amount.toLocaleString()}</div><div style="font-size:0.75em;color:#aaa;font-weight:normal;margin-top:2px;">(${b.lastPaidDate})</div>` : (b.estimatedAmount>0 ? `<div>未納貢</div><div style="font-size:0.75em;color:#666;font-weight:normal;">(預估 $${b.estimatedAmount.toLocaleString()}${b.nextDueDate ? ' ・ 📅'+b.nextDueDate : ''})</div>` : '未納貢');
         billHtml += `<div class="wish-item" style="color:${color}"><div style="display:flex;align-items:center;width:100%"><span style="margin-right:10px;font-size:1.2rem;">${b.paid?'✅':'⬜'}</span><div style="flex-grow:1;display:flex;justify-content:space-between;align-items:center;"><span>${b.name}</span><span style="font-weight:bold;text-align:right;">${text}</span></div></div></div>`;
       });
       document.getElementById('bill-container').innerHTML = billHtml || '<p style="color:#777">無項目</p>';

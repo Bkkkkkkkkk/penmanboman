@@ -265,6 +265,7 @@
 
   <div id="dashboard" style="display:none;">
     <div id="monster-card-container"></div>
+	<div id="quest-panel-container"></div>  
     <div id="hero-card-container"></div> 
     <div id="mission-card-container"></div>
    
@@ -637,7 +638,45 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
     // < 0.4：平日假日花得差不多，沒有重點，變成「混亂邪惡」
     return { text: "彈藥耗散 (混亂)", color: "#ff4444" }; // Red
     }
+	function loadActiveQuests() {
+  fetch(GAS_API_URL + "?token=" + API_TOKEN + "&action=getActiveQuests")
+    .then(function (res) { return res.json(); })
+    .then(function (result) {
+      if (result.status === "success") renderQuestPanel(result.data);
+    })
+    .catch(function (err) { console.log("任務面板讀取失敗：" + err.message); });
+}
 
+function renderQuestPanel(quests) {
+  var container = document.getElementById('quest-panel-container');
+  if (!quests || quests.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  var html = quests.map(function (q) {
+    var barColor = q.progressPercent >= 100 ? '#4caf50' : (q.progressPercent >= 50 ? '#ffb74d' : '#ff6384');
+    return '<div class="card system-window-glow" style="border-left:4px solid ' + barColor + '; margin-bottom:10px;">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+        '<h3 style="margin:0; font-size:1rem; color:#e0e0e0;">⚔️ ' + q.questName + '</h3>' +
+        '<span style="font-size:0.8rem; color:#888;">' + q.questId + '</span>' +
+      '</div>' +
+      '<div style="margin:8px 0 4px 0; background:#333; border-radius:6px; overflow:hidden; height:10px;">' +
+        '<div style="width:' + q.progressPercent + '%; background:' + barColor + '; height:100%;"></div>' +
+      '</div>' +
+      '<div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#aaa;">' +
+        '<span>$' + q.currentRecovered.toLocaleString() + ' / $' + q.targetRecovery.toLocaleString() + '（' + q.progressPercent + '%）</span>' +
+        '<span>剩餘約 ' + q.remainingEstDays + ' 平日</span>' +
+      '</div>' +
+      '<div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#888; margin-top:4px;">' +
+        '<span>契約防線 ≤ $' + q.limitWd + '</span>' +
+        '<span>容錯緩衝 $' + q.cushionAmount + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  container.innerHTML = '<h2 style="font-size:1rem; color:#ff6384; margin:15px 0 10px 0;">⚖️ 進行中契約</h2>' + html;
+}
      window.onload = function() {
       // ⚡ 第 1 步：讀取本地快照 (0 秒極速開機)
       var snapshot = localStorage.getItem('guild_snapshot');
@@ -674,7 +713,9 @@ function getDualRsiStatus(rsi7, rsi14, gap) {
              loader.style.color = "#ff4444";
            }
         });
-    };
+          loadActiveQuests(); // 獨立面板，跟主儀表板資料分開請求，互不影響
+	 };
+	
     // 💥【新增這段】處理強制同步的視覺效果與 API 呼叫
     function forceUpdate() {
       var loader = document.getElementById('loader');

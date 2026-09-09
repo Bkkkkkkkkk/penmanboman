@@ -191,6 +191,8 @@
     /* 獨立魔法蓄力條 (藍) */
     .boss-mp-bar { background: rgba(33, 150, 243, 0.2); height: 6px; border-radius: 3px; overflow: hidden; margin-top: 4px; }
     .boss-mp-fill { background: #2196f3; height: 100%; transition: width 1s ease-out; }
+	.boss-sponsor-bar { background: rgba(76, 175, 80, 0.2); height: 6px; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+	.boss-sponsor-fill { background: #4caf50; height: 100%; transition: width 1s ease-out; }  
 	/* 🗡️ 系統任務面板 (我獨自升級風格) */
     .quest-window {
       background: linear-gradient(180deg, rgba(10,20,30,0.95) 0%, rgba(5,10,15,0.95) 100%);
@@ -1121,7 +1123,7 @@ if (data.bossList && data.bossList.length > 0) {
            
            var paidPct = Math.min(100, (boss.paidAmount / safeHp) * 100);
            var mpPct = Math.min(100, (boss.chargedMP / safeHp) * 100); 
-           
+           var sponsorPct = Math.min(100, (boss.sponsoredAmount / safeHp) * 100);
            var slainClass = boss.isKilled ? "slain" : "";
            var stampHtml = boss.isKilled ? `<div class="slain-stamp">DEFEATED</div>` : "";
 
@@ -1138,6 +1140,15 @@ if (data.bossList && data.bossList.length > 0) {
                  <div class="boss-mp-bar"><div class="boss-mp-fill" style="width:${mpPct}%;"></div></div>
               </div>
            ` : '';
+			var sponsorHtml = boss.sponsoredAmount > 0 ? `
+			   <div style="margin-top: 10px;">
+			      <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#4caf50;">
+			         <span>🎁 友軍支援 (贊助)</span>
+			         <span>$${boss.sponsoredAmount.toLocaleString()} / 總計 $${boss.hp.toLocaleString()}</span>
+			      </div>
+			      <div class="boss-sponsor-bar"><div class="boss-sponsor-fill" style="width:${sponsorPct}%;"></div></div>
+			   </div>
+			` : '';
 
            bossHtml += `
            <div class="boss-card ${slainClass}">

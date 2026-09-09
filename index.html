@@ -1218,6 +1218,9 @@ if (data.bossList && data.bossList.length > 0) {
         if (t.type === '收入') { 
             color = '#4caf50'; 
             sign = '+';
+		} else if (t.type === '專案贊助') {
+	        color = '#4caf50'; 
+	        sign = '+';	
         } else if (t.type.indexOf('轉帳') > -1) { 
             color = '#FFD700'; 
             sign = '';

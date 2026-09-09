@@ -1144,12 +1144,15 @@ if (data.bossList && data.bossList.length > 0) {
               </div>
            ` : '';
 			var sponsorHtml = boss.sponsoredAmount > 0 ? `
-			  <div style="margin-top: 10px;">
+			   <div style="margin-top: 10px;">
 			      <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#4caf50;">
 			         <span>🎁 友軍支援 (贊助)</span>
-			         <span>$${boss.sponsoredAmount.toLocaleString()} / 總計 $${boss.hp.toLocaleString()}</span>
+			         <span>$${boss.sponsoredAmount.toLocaleString()} ： 自付需求 $${personalBurden.toLocaleString()}</span>
 			      </div>
-			      <div class="boss-sponsor-bar"><div class="boss-sponsor-fill" style="width:${sponsorPct}%;"></div></div>
+			      <div class="boss-sponsor-bar" style="display:flex;">
+			         <div class="boss-sponsor-fill" style="width:${sponsorPct}%;"></div>
+			         <div class="boss-burden-fill" style="width:${burdenPct}%;"></div>
+			      </div>
 			   </div>
 			` : '';
 

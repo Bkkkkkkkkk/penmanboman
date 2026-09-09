@@ -1122,8 +1122,9 @@ if (data.bossList && data.bossList.length > 0) {
            var remainingHp = Math.max(0, boss.hp - boss.paidAmount); 
            
            var paidPct = Math.min(100, (boss.paidAmount / safeHp) * 100);
-           var mpPct = Math.min(100, (boss.chargedMP / safeHp) * 100); 
-           var sponsorPct = Math.min(100, (boss.sponsoredAmount / safeHp) * 100);
+		   var mpPct = Math.min(100, (boss.chargedMP / safeHp) * 100); 
+		   var personalBurden = Math.max(1, boss.hp - boss.sponsoredAmount);   // 你自己實際要負擔的金額（避免除以0用Math.max保底1）
+		   var sponsorPct = Math.min(100, (boss.sponsoredAmount / personalBurden) * 100);
            var slainClass = boss.isKilled ? "slain" : "";
            var stampHtml = boss.isKilled ? `<div class="slain-stamp">DEFEATED</div>` : "";
 
@@ -1144,7 +1145,7 @@ if (data.bossList && data.bossList.length > 0) {
 			   <div style="margin-top: 10px;">
 			      <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#4caf50;">
 			         <span>🎁 友軍支援 (贊助)</span>
-			         <span>$${boss.sponsoredAmount.toLocaleString()} / 總計 $${boss.hp.toLocaleString()}</span>
+			         <span>$${boss.sponsoredAmount.toLocaleString()} / 自付需求 $${personalBurden.toLocaleString()}</span>
 			      </div>
 			      <div class="boss-sponsor-bar"><div class="boss-sponsor-fill" style="width:${sponsorPct}%;"></div></div>
 			   </div>
